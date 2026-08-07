@@ -6,3 +6,4 @@
 | Sesión | Fecha | Resumen | Archivo |
 | --- | --- | --- | --- |
 | 1 | 2026-08-07 | Bootstrap de stele (layout agrupado) + firmware migrado a PlatformIO | sesion-001-2026-08-07.md |
+| 2 | 2026-08-07 | Vinculado repo remoto (origin/main) + primer commit y push | sesion-002-2026-08-07.md |

@@ -6,8 +6,8 @@ SIN_TRABAJO_ACTIVO
 
 ## Última sesión cerrada
 
-Sesión `1` (`2026-08-07`) — Bootstrap de stele + firmware migrado a PlatformIO. Ver
-`sesion-001-2026-08-07.md` en `bitacora/history/`.
+Sesión `2` (`2026-08-07`) — Vinculación al repo remoto (`origin/main`) + primer commit y push.
+Ver `sesion-002-2026-08-07.md` en `bitacora/history/`.
 No hay trabajo a medias.
 
 <!-- =========================================================================

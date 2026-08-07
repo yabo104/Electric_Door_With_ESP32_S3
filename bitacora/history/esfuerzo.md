@@ -8,3 +8,4 @@
 | Sesión | Fecha | horas-ingeniero | Funcionalidades clave |
 | --- | --- | --- | --- |
 | 1 | 2026-08-07 | 1.5-3 | Bootstrap stele + migracion firmware a PlatformIO |
+| 2 | 2026-08-07 | 0.25-0.5 | Vinculo de repo remoto + primer commit/push |
