@@ -1,0 +1,19 @@
+# PlatformIO
+Firmware_Porton/.pio/
+Firmware_Porton/.vscode/.browse.c_cpp.db*
+Firmware_Porton/.vscode/c_cpp_properties.json
+Firmware_Porton/.vscode/launch.json
+Firmware_Porton/.vscode/ipch
+
+# KiCad
+PCB_puerta/PCB_puerta-backups/
+PCB_puerta/*.bak
+PCB_puerta/fp-info-cache
+*.kicad_prl
+
+# stele: artefactos de sesion, no se versionan por defecto
+bitacora/artefactos/
+
+# OS
+Thumbs.db
+.DS_Store
