@@ -1,48 +1,44 @@
 # Estado actual
 
-> Última sesión: Sesión `3` (`2026-08-08`) — ver `sesion-003-2026-08-08.md`
+> Última sesión: Sesión `4` (`2026-08-08`) — ver `sesion-004-2026-08-08.md`
 > Índice completo de sesiones: [index.md](./index.md)
 > Protocolo de documentación: [protocol.md](../protocol.md)
 
 ## Dónde estamos
 
 - El marco **stele** está instalado (`.stele/`) y bootstrapeado con layout `agrupado`
-  (`base = bitacora`).
-- `Firmware_Porton/` es un proyecto **PlatformIO** (entorno `esp32-s3-devkitc-1`, módulo real
-  `ESP32-S3-WROOM-1U-N8R8`). `pio run` compila correctamente. Todavía no se ha modificado la
-  lógica desde la migración inicial.
-- Repositorio git vinculado a `origin` → `https://github.com/yabo104/Electric_Door_With_ESP32_S3.git`,
-  rama `main`, sincronizado.
-- **Contrato de hardware completo capturado**: sistema de potencia (motor de fase partida, TRIAC,
-  relevos, encoder, finales de carrera, receptor RF) y tabla de los 13 pines del ESP32-S3, en
-  `requirements.md` §2 / `bitacora/temas/hardware-esp32-s3.md`. Confirmado que coincide con las
-  polaridades que ya asume el firmware.
-- **Brecha detectada** (ver `architecture.md` → "Brecha conocida" y `memory.md`): `ZCROSS`,
-  `ENCA`/`ENCB` y `FC_OPEN`/`FC_CLOSE` están pensados como interrupciones y el firmware actual
-  solo hace polling / no los usa. Hay preguntas de diseño abiertas con el usuario antes de
-  implementar esa parte (ver el chat de la sesión 3; si se responden, la decisión va a
-  `requirements.md`/`design.md`, no solo aquí).
+  (`base = bitacora`). Repo vinculado a `origin/main`, sincronizado.
+- `Firmware_Porton/` ya tiene una **primera implementación real** de la máquina de estados del
+  portón (no solo la plantilla de pruebas migrada): interlock de relevos, no bloqueante,
+  detección de atasco por encoder, USB CDC nativo. `pio run` compila limpio. **Nada probado en
+  hardware real todavía** (no hay placa conectada en este entorno).
+- Contrato de hardware completo en `requirements.md` §2 / `bitacora/temas/hardware-esp32-s3.md`.
+  Diseño de la máquina de estados en `requirements.md` §3/§4 y `architecture.md`.
 
 ## Próximo paso inmediato
 
-- Resolver con el usuario las preguntas de diseño sobre `ZCROSS`/TRIAC (sincronización de
-  disparo), encoder (uso para detectar movimiento/dirección/atasco) y si `FC_OPEN`/`FC_CLOSE`
-  pasan a manejarse por interrupción.
-- Recién con eso decidido, empezar la implementación real de firmware (hoy la máquina de estados
-  sigue siendo la que vino del `.ino` original, sin usar TRIAC/encoder).
+- **Confirmar con el usuario** la interpretación de la lógica de sentido del control remoto
+  (`requirements.md` §4 — el mensaje original tenía "abrir"/"cerrar" aparentemente invertidos
+  respecto de lo funcionalmente sensato; se implementó la versión intuitiva, pendiente de que el
+  usuario la valide).
+- Cuando haya placa disponible: `pio run -t upload` + prueba real del interlock de relevos, el
+  timeout de atasco del encoder, y el USB CDC.
 
 ## Pendientes operativos
 
-- Preguntas de diseño de hardware/firmware sin responder (ver arriba) — bloquean la siguiente
-  implementación real, no son bloqueo para seguir documentando.
-- Cuando haya placa disponible: `pio run -t upload` + `pio device monitor` para validar en
-  hardware real, y ajustar `board`/`board_build.*` en `Firmware_Porton/platformio.ini` si hace
-  falta.
-- Varias secciones de `design.md`/`requirements.md` quedaron marcadas `ADAPTAR` (restricciones,
-  modelo de datos) — pendientes de que el usuario las complete.
+- Confirmación pendiente de la lógica abrir/cerrar del control remoto (ver arriba) — punto de
+  seguridad real, no cosmético.
+- Qué hacer al entrar/salir del estado `ERROR` (atasco) — el usuario dijo que lo define más
+  adelante; hoy solo corta potencia y queda inerte.
+- Rampa de arranque suave del TRIAC vía `ZCROSS` — pospuesta a una sesión futura (decisión
+  explícita del usuario).
+- Rename externo de `PCB_puerta/` → `PCB_Door_Controller`/`PCB_Door_Controller_` detectado en la
+  sesión 3, todavía sin resolver con el usuario (no se tocó, ver sesión 003).
+- Board de PlatformIO (`esp32-s3-devkitc-1`) sin confirmar contra el módulo real
+  (`ESP32-S3-WROOM-1U-N8R8`).
 
 ## Referencias
 
-- `requirements.md` §2 / `bitacora/temas/hardware-esp32-s3.md` — contrato de hardware y pines.
-- `architecture.md` → "Brecha conocida" — qué falta para que el firmware respete ese contrato.
-- `memory.md` — gotchas de polaridad (LED, relevos, TRIGGER, finales de carrera).
+- `requirements.md` §3/§4 — máquina de estados y política de control remoto.
+- `architecture.md` — patrones (interlock, no bloqueante, botón por flanco) y brecha de `ZCROSS`.
+- `memory.md` — gotchas de polaridad y de la ISR del encoder.

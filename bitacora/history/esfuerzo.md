@@ -10,3 +10,4 @@
 | 1 | 2026-08-07 | 1.5-3 | Bootstrap stele + migracion firmware a PlatformIO |
 | 2 | 2026-08-07 | 0.25-0.5 | Vinculo de repo remoto + primer commit/push |
 | 3 | 2026-08-08 | 0.5-1 | Captura y verificacion del contrato de hardware |
+| 4 | 2026-08-08 | 5.5-10 | Interlock relevos + maquina de estados + atasco por encoder + USB CDC |

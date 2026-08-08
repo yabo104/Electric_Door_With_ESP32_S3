@@ -21,8 +21,11 @@ firmware y placa controladora diseñada a medida.
 
 ## Restricciones y no-negociables
 
-ADAPTAR: límites que acotan el espacio de solución (normativos, presupuesto, plataforma objetivo
-—hoy: ESP32-S3—, requisitos de seguridad eléctrica al operar TRIAC/relevos de línea).
+- **Sin Wi-Fi ni Bluetooth por ahora.** El ESP32-S3 los tiene disponibles pero no se usan todavía.
+  A futuro: Bluetooth para controlar el portón desde una app móvil (no hay diseño de ese
+  protocolo todavía — cuando se aborde, documentar en `requirements.md`).
+- ADAPTAR: agregar otros límites (normativos, presupuesto, requisitos de seguridad eléctrica al
+  operar TRIAC/relevos de línea) a medida que se decidan.
 
 ## Decisiones estructurales (ADR-lite)
 
@@ -38,6 +41,20 @@ ADAPTAR: límites que acotan el espacio de solución (normativos, presupuesto, p
   pasa a usar PlatformIO como herramienta de build/flash a partir de ahora.
 - **Consecuencias / detalle:** ver `architecture.md`.
 
+### 2026-08-08 — Máquina de estados del portón: interlock de seguridad + no bloqueante
+
+- **Contexto:** el firmware original (plantilla de pruebas) no garantizaba por diseño que los dos
+  relevos nunca estuvieran activos juntos, invertía sentido con `delay()` bloqueantes, y no tenía
+  forma de detectar un atasco del motor.
+- **Decisión:** interlock de relevos centralizado en una sola función (`seleccionarSentido()`,
+  ver `architecture.md`), máquina de estados no bloqueante basada en `millis()`, y detección de
+  atasco por timeout de pulsos del encoder (`ENCA` por interrupción). El TRIAC se trata como
+  interruptor todo/nada (sin `ZCROSS`) hasta una sesión futura. Detalle en `requirements.md` §3/§4.
+- **Alternativas descartadas:** mantener el diseño con `while()`/`delay()` bloqueantes — se
+  descartó porque impide medir timeouts (atasco) y responder a `Serial` mientras la puerta se
+  mueve.
+- **Consecuencias / detalle:** ver `architecture.md` → Patrones reutilizables y Brecha conocida.
+
 (Repetir por decisión. Las que dejan de ser relevantes se podan; su rastro queda en el historial.)
 
 ## Glosario
@@ -46,15 +63,17 @@ ADAPTAR: límites que acotan el espacio de solución (normativos, presupuesto, p
 - **FC_OPEN / FC_CLOSE** — finales de carrera (reed switch) que indican portón totalmente abierto
   / cerrado.
 - **D0-D3** — canales ya decodificados del receptor RF 433MHz de los controles remotos.
-- **TRIGGER** — señal de disparo del TRIAC, sincronizada con `ZCROSS` (cruce por cero de la AC).
-  El TRIAC regula la **potencia** entregada al motor; no decide el sentido de giro.
+- **TRIGGER** — señal de disparo del TRIAC. Diseño final: sincronizada con `ZCROSS` (cruce por
+  cero de la AC) para regular potencia por ángulo de fase. **Hoy (provisional):** sin `ZCROSS`,
+  todo/nada. El TRIAC regula la **potencia** entregada al motor; no decide el sentido de giro.
 - **RELAY_OP / RELAY_CL** — relevos que eligen el **sentido** de giro del motor (qué terminal de
   control queda energizado), no la potencia.
 - **Motor de fase partida (110VAC)** — motor con un terminal común y dos terminales de control,
   con un capacitor (33µF/400V) entre ambos que produce el desfase necesario para girar en un
   sentido u otro según cuál terminal se energiza.
-- **ENCA / ENCB** — canales en cuadratura del encoder del motor: única realimentación real de que
-  el motor se está moviendo, y en qué dirección.
+- **ENCA / ENCB** — canales en cuadratura del encoder del motor. **Hoy solo se usa `ENCA`**, como
+  pulso de "el motor se está moviendo" (detección de atasco); no se decodifica dirección/posición
+  todavía.
 - ADAPTAR: agregar términos de dominio adicionales según surjan (p. ej. nombre/modelo del
   operador de portón, protocolo del control remoto).
 
