@@ -25,19 +25,34 @@
 
 ## Firmware (`Firmware_Porton/`)
 
+**Contrato de pines confirmado por el usuario** (sesión 003): tabla completa y sistema de potencia
+en [`temas/hardware-esp32-s3.md`](temas/hardware-esp32-s3.md), resumen en `requirements.md` §2.
+Lo de abajo son las trampas puntuales que ese contrato implica para el código actual.
+
 - **Los relevos son activos en LOW.** `RELAY_OP`/`RELAY_CL` en `LOW` es lo que **activa** el
-  motor (abre/cierra); `HIGH` los deja desenergizados. Escribir `HIGH` a ambos es el estado
-  seguro/parado.
+  relevo (elige el sentido de giro); `HIGH` los deja desenergizados. Escribir `HIGH` a ambos es el
+  estado seguro/parado. **Los relevos solo eligen sentido — la potencia la regula el TRIAC.**
 - **`TRIGGER` (disparo del TRIAC) también es activo en LOW.** `HIGH` = disparo inhibido.
-- **`FC_OPEN`/`FC_CLOSE` usan `INPUT_PULLUP`.** El final de carrera activado se lee como `LOW`;
-  por eso la lógica de puerta comprueba con `!digitalRead(FC_OPEN)` para "portón abierto".
-- **`D0`-`D3` son las salidas ya decodificadas del receptor de control remoto** (no los pines
-  crudos del RF). Se leen con `digitalRead` simple (sin pull-up): cualquiera en `HIGH` dispara un
-  comando de apertura/cierre.
+- **`LED` es activo en LOW** (nivel 0 = encendido). El firmware actual ya arranca en `HIGH`
+  (apagado) por diseño de `inicializarPines()`, pero antes de este contrato esa polaridad no
+  estaba documentada — no asumir lo contrario al tocar el LED.
+- **`FC_OPEN`/`FC_CLOSE` usan `INPUT_PULLUP`.** El final de carrera activado se lee como `LOW`
+  (flanco de bajada al llegar el imán); por eso la lógica de puerta comprueba con
+  `!digitalRead(FC_OPEN)` para "portón abierto".
+- **`D0`-`D3` son las salidas ya decodificadas del receptor RF 433MHz** (no los pines crudos del
+  RF). Se leen con `digitalRead` simple (sin pull-up): cualquiera en `HIGH` dispara un comando de
+  apertura/cierre.
+- **`ZCROSS`, `ENCA`/`ENCB` y `FC_OPEN`/`FC_CLOSE` están pensados como fuentes de interrupción**
+  (así los describe el contrato de hardware), pero el firmware actual **no usa interrupciones en
+  ninguno**: `FC_OPEN`/`FC_CLOSE` se leen por *polling* dentro de `actualizarEstadoPuerta()`;
+  `ZCROSS` no se usa (no hay disparo de TRIAC sincronizado a cruce por cero todavía, solo los
+  comandos de prueba `5`/`6` que fuerzan `TRIGGER` a mano); `ENCA`/`ENCB` no se leen en ningún
+  lado. Es una brecha de diseño conocida, no un bug — ver preguntas abiertas antes de tocar esto.
 - **El estado `WAITING` bloquea el `loop()`.** Tiene un `while(...)` que espera a que se suelten
   los canales `D0`-`D3` antes de seguir — mientras un botón del control remoto se mantiene
-  presionado, el resto del firmware (lectura serie, LED, etc.) no corre. Tenerlo en cuenta antes
-  de agregar lógica que deba correr siempre (p. ej. un watchdog o un timeout).
+  presionado, el resto del firmware (lectura serie, LED, etc.) no corre. Si `ZCROSS` pasa a
+  manejarse por interrupción, este bloqueo del loop principal deja de ser un problema para el
+  disparo del TRIAC (la ISR sigue corriendo), pero sigue siéndolo para todo lo demás.
 - **`comando` se maneja por caracter ASCII** (`'0'`-`'7'`) vía `Serial` a 115200 baudios; es la
   interfaz de pruebas manuales, no un protocolo binario.
 

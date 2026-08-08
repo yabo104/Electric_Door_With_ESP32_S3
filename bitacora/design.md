@@ -43,9 +43,18 @@ ADAPTAR: límites que acotan el espacio de solución (normativos, presupuesto, p
 ## Glosario
 
 - **Portón** — la puerta/reja automatizada que controla este sistema.
-- **FC_OPEN / FC_CLOSE** — finales de carrera que indican portón totalmente abierto / cerrado.
-- **D0-D3** — canales decodificados del control remoto.
+- **FC_OPEN / FC_CLOSE** — finales de carrera (reed switch) que indican portón totalmente abierto
+  / cerrado.
+- **D0-D3** — canales ya decodificados del receptor RF 433MHz de los controles remotos.
 - **TRIGGER** — señal de disparo del TRIAC, sincronizada con `ZCROSS` (cruce por cero de la AC).
+  El TRIAC regula la **potencia** entregada al motor; no decide el sentido de giro.
+- **RELAY_OP / RELAY_CL** — relevos que eligen el **sentido** de giro del motor (qué terminal de
+  control queda energizado), no la potencia.
+- **Motor de fase partida (110VAC)** — motor con un terminal común y dos terminales de control,
+  con un capacitor (33µF/400V) entre ambos que produce el desfase necesario para girar en un
+  sentido u otro según cuál terminal se energiza.
+- **ENCA / ENCB** — canales en cuadratura del encoder del motor: única realimentación real de que
+  el motor se está moviendo, y en qué dirección.
 - ADAPTAR: agregar términos de dominio adicionales según surjan (p. ej. nombre/modelo del
   operador de portón, protocolo del control remoto).
 

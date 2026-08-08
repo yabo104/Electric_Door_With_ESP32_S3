@@ -54,3 +54,14 @@
    `OPENING` o `CLOSING` según qué final de carrera está activo → en movimiento, una nueva
    pulsación invierte el sentido; al llegar al final de carrera contrario, vuelve a `STOP` →
    `WAITING`.
+
+## Brecha conocida (antes de tocar `ZCROSS`/encoder/finales de carrera)
+
+El contrato de hardware (`requirements.md` §2, detalle en
+[`temas/hardware-esp32-s3.md`](temas/hardware-esp32-s3.md)) describe `ZCROSS`, `ENCA`/`ENCB` y
+`FC_OPEN`/`FC_CLOSE` como fuentes de **interrupción**. El firmware actual no usa interrupciones en
+ninguno: los finales de carrera se leen por *polling* dentro de `actualizarEstadoPuerta()`,
+`ZCROSS` no se usa (no hay disparo de TRIAC sincronizado a cruce por cero), y `ENCA`/`ENCB` no se
+leen. Pasar a un diseño con ISRs (sobre todo para `ZCROSS`, que es una señal de temporización) va
+a requerir separar estado compartido con `volatile` y sacar el disparo del TRIAC de la lógica de
+`loop()`. No implementado todavía — ver preguntas de diseño planteadas en la sesión 003.

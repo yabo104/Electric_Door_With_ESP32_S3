@@ -6,9 +6,9 @@ SIN_TRABAJO_ACTIVO
 
 ## Última sesión cerrada
 
-Sesión `2` (`2026-08-07`) — Vinculación al repo remoto (`origin/main`) + primer commit y push.
-Ver `sesion-002-2026-08-07.md` en `bitacora/history/`.
-No hay trabajo a medias.
+Sesión `3` (`2026-08-08`) — Captura del contrato de hardware (pines ESP32-S3 + sistema de
+potencia). Ver `sesion-003-2026-08-08.md` en `bitacora/history/`.
+No hay trabajo a medias (no se tocó código).
 
 <!-- =========================================================================
      Cuando arranca un cambio interrumpible, SOBRESCRIBIR con la forma EN_PROGRESO:

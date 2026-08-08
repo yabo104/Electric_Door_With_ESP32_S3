@@ -18,6 +18,7 @@
 ## § Índice de decisiones
 
 - §1 — Interfaz de comandos por Serial (pruebas de banco)
+- §2 — Contrato de hardware: sistema de potencia y pines ESP32-S3
 
 ### §1 — Interfaz de comandos por Serial (pruebas de banco)
 
@@ -36,6 +37,18 @@
     que corre en paralelo cada iteración del `loop()`.
 - **Por qué:** pensada para validar cableado/hardware de banco antes de operar el portón de forma
   autónoma. No es un protocolo pensado para integrarse con otro sistema.
+
+### §2 — Contrato de hardware: sistema de potencia y pines ESP32-S3
+
+- **Qué es:** motor AC 110V de fase partida (común + 2 terminales de control + capacitor 33µF/
+  400V entre ellos), 2 relevos que eligen el sentido, 1 TRIAC que regula la potencia (sincronizado
+  a `ZCROSS`), encoder de 2 canales para detectar movimiento/dirección, 2 finales de carrera *reed
+  switch*, receptor RF 433MHz que expone 4 canales digitales (`D0`-`D3`). Tabla completa de pines
+  ESP32-S3 con tipo/polaridad de cada señal.
+- **Por qué se extrajo:** contrato largo (tabla de 13 pines + descripción de sistema) y es la
+  referencia autoritativa antes de escribir cualquier lógica de firmware nueva.
+- Detalle completo, con la brecha entre este contrato y lo que el firmware actual ya implementa:
+  [`bitacora/temas/hardware-esp32-s3.md`](./temas/hardware-esp32-s3.md).
 
 ## Modelo de datos
 
