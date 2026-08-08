@@ -53,6 +53,12 @@ Diseño de la máquina de estados (sesión 004) en `requirements.md` §3/§4 y `
   primero esto.
 - **`ZCROSS` sigue sin usarse.** Decisión explícita del usuario (sesión 004): queda para una
   sesión futura, cuando se implemente la rampa de arranque suave del TRIAC.
+- **UART de depuración: confirmado en `GPIO43` (TXD0) / `GPIO44` (RXD0)**, hacia un conector
+  auxiliar en la placa (confirmado por el usuario, sesión 005) — **no** hay conflicto con
+  `TRIGGER` (`GPIO21`). El comentario del `.ino` original (`// HW UART TXD pin IO21`) estaba
+  desactualizado/equivocado; no se arrastró a `porton.h`. Con el USB CDC habilitado
+  (`ARDUINO_USB_CDC_ON_BOOT`), `Serial` usa el USB nativo, así que esta UART física queda libre
+  para depuración aparte si hace falta (no está en uso desde el firmware todavía).
 - **`comando` se maneja por caracter ASCII** (`'0'`-`'7'`) vía `Serial`; es la interfaz de pruebas
   manuales, no un protocolo binario. Los comandos `1`/`2`/`3` reusan `seleccionarSentido()`/
   `detenerMotor()`, así que el interlock de relevos aplica también en modo manual.

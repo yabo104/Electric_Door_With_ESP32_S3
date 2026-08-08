@@ -1,44 +1,44 @@
 # Estado actual
 
-> Última sesión: Sesión `4` (`2026-08-08`) — ver `sesion-004-2026-08-08.md`
+> Última sesión: Sesión `5` (`2026-08-08`) — ver `sesion-005-2026-08-08.md`
 > Índice completo de sesiones: [index.md](./index.md)
 > Protocolo de documentación: [protocol.md](../protocol.md)
 
 ## Dónde estamos
 
-- El marco **stele** está instalado (`.stele/`) y bootstrapeado con layout `agrupado`
-  (`base = bitacora`). Repo vinculado a `origin/main`, sincronizado.
-- `Firmware_Porton/` ya tiene una **primera implementación real** de la máquina de estados del
-  portón (no solo la plantilla de pruebas migrada): interlock de relevos, no bloqueante,
-  detección de atasco por encoder, USB CDC nativo. `pio run` compila limpio. **Nada probado en
-  hardware real todavía** (no hay placa conectada en este entorno).
-- Contrato de hardware completo en `requirements.md` §2 / `bitacora/temas/hardware-esp32-s3.md`.
-  Diseño de la máquina de estados en `requirements.md` §3/§4 y `architecture.md`.
+- El marco **stele** está instalado y bootstrapeado (`base = bitacora`), repo sincronizado con
+  `origin/main`.
+- `Firmware_Porton/` tiene una primera implementación completa de la lógica del portón (interlock
+  de relevos, no bloqueante, timeout de atasco por encoder, USB CDC), con la lógica de control
+  remoto **ya confirmada por el usuario**. `pio run` compila limpio. **Todavía nada probado en
+  hardware real** — la próxima sesión es con la placa física en mano.
+- Aclarado: no hay conflicto de pines entre `TRIGGER` (GPIO21) y la UART de depuración (confirmada
+  en GPIO43/44, hacia un conector auxiliar).
+- Decisión de largo plazo registrada: la documentación se traduce a inglés recién al finalizar el
+  proyecto (destino: pool de proyectos open-source de referencia del usuario). Por ahora sigue en
+  español — no hay nada que traducir todavía.
 
 ## Próximo paso inmediato
 
-- **Confirmar con el usuario** la interpretación de la lógica de sentido del control remoto
-  (`requirements.md` §4 — el mensaje original tenía "abrir"/"cerrar" aparentemente invertidos
-  respecto de lo funcionalmente sensato; se implementó la versión intuitiva, pendiente de que el
-  usuario la valide).
-- Cuando haya placa disponible: `pio run -t upload` + prueba real del interlock de relevos, el
-  timeout de atasco del encoder, y el USB CDC.
+- **Sesión con la placa física:** `pio run -t upload`, validar en hardware real el interlock de
+  relevos, el timeout de atasco del encoder, los finales de carrera, y el USB CDC. Ajustar
+  `board_build.*` en `platformio.ini` si aparecen problemas de flash/PSRAM contra el módulo real
+  (`ESP32-S3-WROOM-1U-N8R8`).
 
 ## Pendientes operativos
 
-- Confirmación pendiente de la lógica abrir/cerrar del control remoto (ver arriba) — punto de
-  seguridad real, no cosmético.
-- Qué hacer al entrar/salir del estado `ERROR` (atasco) — el usuario dijo que lo define más
-  adelante; hoy solo corta potencia y queda inerte.
-- Rampa de arranque suave del TRIAC vía `ZCROSS` — pospuesta a una sesión futura (decisión
-  explícita del usuario).
-- Rename externo de `PCB_puerta/` → `PCB_Door_Controller`/`PCB_Door_Controller_` detectado en la
-  sesión 3, todavía sin resolver con el usuario (no se tocó, ver sesión 003).
-- Board de PlatformIO (`esp32-s3-devkitc-1`) sin confirmar contra el módulo real
-  (`ESP32-S3-WROOM-1U-N8R8`).
+- **Trackear en git el proyecto de KiCad renombrado.** En disco ya quedó una sola carpeta,
+  `PCB_Door_Controller/` (la otra variante con guion bajo, `PCB_Door_Controller_/`, ya no está),
+  pero sigue sin commitear — git todavía tiene `PCB_puerta/` como borrado pendiente. Ojo: dentro
+  de `PCB_Door_Controller/` los archivos del proyecto KiCad se llaman `PCB_Door_Controller_.*`
+  (con guion bajo al final, distinto del nombre de la carpeta) — parece un rename incompleto;
+  confirmar con el usuario antes de commitear el rename.
+- Qué hacer al entrar/salir del estado `ERROR` (atasco) — el usuario lo define más adelante.
+- Rampa de arranque suave del TRIAC vía `ZCROSS` — pospuesta a una sesión futura.
+- Traducción de la documentación a inglés — tarea de **cierre de proyecto**, no de ahora.
 
 ## Referencias
 
-- `requirements.md` §3/§4 — máquina de estados y política de control remoto.
-- `architecture.md` — patrones (interlock, no bloqueante, botón por flanco) y brecha de `ZCROSS`.
-- `memory.md` — gotchas de polaridad y de la ISR del encoder.
+- `requirements.md` §3/§4 — máquina de estados y control remoto (ya confirmados).
+- `design.md` → Restricciones — decisión de idioma de documentación al finalizar el proyecto.
+- `memory.md` — gotchas de polaridad, ISR del encoder, UART de depuración (GPIO43/44).

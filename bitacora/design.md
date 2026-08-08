@@ -9,7 +9,8 @@
 ## Norte
 
 Controlador electrónico para automatizar la apertura y cierre de un portón, con su propio
-firmware y placa controladora diseñada a medida.
+firmware y placa controladora diseñada a medida. A futuro, este proyecto forma parte de un pool
+de proyectos open-source del usuario, pensados como referencia de trabajos realizados.
 
 ## Principios de diseño (no negociables)
 
@@ -24,6 +25,12 @@ firmware y placa controladora diseñada a medida.
 - **Sin Wi-Fi ni Bluetooth por ahora.** El ESP32-S3 los tiene disponibles pero no se usan todavía.
   A futuro: Bluetooth para controlar el portón desde una app móvil (no hay diseño de ese
   protocolo todavía — cuando se aborde, documentar en `requirements.md`).
+- **Idioma de la documentación (decisión del usuario, sesión 005):** durante el desarrollo activo
+  se mantiene en español (es lo que ya hay y lo que configura `stele.config.md`). **Cuando el
+  proyecto se dé por terminado**, se traduce todo a inglés, porque el destino es un pool de
+  proyectos open-source de referencia. No es un cambio a aplicar ahora — es una tarea de cierre
+  de proyecto (traducir `bitacora/`, comentarios de código, `README` si se agrega uno, etc.),
+  a recordar cuando se llegue a esa etapa.
 - ADAPTAR: agregar otros límites (normativos, presupuesto, requisitos de seguridad eléctrica al
   operar TRIAC/relevos de línea) a medida que se decidan.
 

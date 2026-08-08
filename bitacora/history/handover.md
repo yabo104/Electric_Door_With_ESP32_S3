@@ -6,10 +6,9 @@ SIN_TRABAJO_ACTIVO
 
 ## Última sesión cerrada
 
-Sesión `4` (`2026-08-08`) — Interlock de relevos, máquina de estados no bloqueante, detección de
-atasco por encoder y USB CDC nativo. Ver `sesion-004-2026-08-08.md` en `bitacora/history/`.
-No hay trabajo a medias, pero queda una confirmación pendiente del usuario (lógica abrir/cerrar
-del control remoto, ver `latest.md`) antes de dar la funcionalidad por cerrada.
+Sesión `5` (`2026-08-08`) — Confirmaciones de diseño (control remoto, UART, idioma futuro de la
+documentación). Ver `sesion-005-2026-08-08.md` en `bitacora/history/`.
+No hay trabajo a medias. Próxima sesión: pruebas con la placa física.
 
 <!-- =========================================================================
      Cuando arranca un cambio interrumpible, SOBRESCRIBIR con la forma EN_PROGRESO:

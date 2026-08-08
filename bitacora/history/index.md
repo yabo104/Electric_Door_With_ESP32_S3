@@ -9,3 +9,4 @@
 | 2 | 2026-08-07 | Vinculado repo remoto (origin/main) + primer commit y push | sesion-002-2026-08-07.md |
 | 3 | 2026-08-08 | Capturado contrato de hardware (pines ESP32-S3 + sistema de potencia) | sesion-003-2026-08-08.md |
 | 4 | 2026-08-08 | Interlock de relevos + maquina de estados no bloqueante + timeout de encoder + USB CDC | sesion-004-2026-08-08.md |
+| 5 | 2026-08-08 | Confirmaciones de diseno (control remoto, UART, idioma futuro) | sesion-005-2026-08-08.md |

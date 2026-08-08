@@ -104,12 +104,9 @@
     a medio camino) → el botón **cierra**, por defecto.
   - Esta lógica se evalúa en cada pulsación, no solo al arrancar — si alguien mueve el portón a
     mano estando el sistema apagado, al reconectar la próxima pulsación lee la posición real.
-  - **Nota sobre una posible contradicción:** el pedido original decía *"si el portón está
-    abierto solo se puede abrir, si está cerrado solo se puede cerrar"*, que es lo opuesto de lo
-    de arriba y no tiene sentido funcional (un botón que solo permite "abrir" cuando ya está
-    abierta no hace nada). Se interpretó como un lapsus de redacción y se implementó la lógica
-    intuitiva (arriba), que además es la que ya tenía el firmware original. **Pendiente de
-    confirmación del usuario.**
+  - **Confirmado por el usuario (sesión 005):** la redacción original tenía "abrir"/"cerrar"
+    invertidos; la lógica de arriba (abierta → cierra, cerrada → abre, intermedia → cierra por
+    defecto) es la correcta y ya está implementada en `porton.cpp` sin cambios.
 
 ## Modelo de datos
 
