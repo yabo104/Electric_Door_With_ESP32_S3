@@ -6,9 +6,10 @@ SIN_TRABAJO_ACTIVO
 
 ## Última sesión cerrada
 
-Sesión `5` (`2026-08-08`) — Confirmaciones de diseño (control remoto, UART, idioma futuro de la
-documentación). Ver `sesion-005-2026-08-08.md` en `bitacora/history/`.
-No hay trabajo a medias. Próxima sesión: pruebas con la placa física.
+Sesión `6` (`2026-08-08`) — Primera validación en hardware real: control remoto D0/D2, doble
+pulsación, ENCA2 (sensor Hall) y recuperación de ERROR, todo confirmado funcionando en la placa
+física. Ver `sesion-006-2026-08-08.md` en `bitacora/history/`.
+No hay trabajo a medias. Próximo tema: control de potencia con el TRIAC (rampa por ZCROSS).
 
 <!-- =========================================================================
      Cuando arranca un cambio interrumpible, SOBRESCRIBIR con la forma EN_PROGRESO:

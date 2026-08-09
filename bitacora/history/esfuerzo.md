@@ -12,3 +12,4 @@
 | 3 | 2026-08-08 | 0.5-1 | Captura y verificacion del contrato de hardware |
 | 4 | 2026-08-08 | 5.5-10 | Interlock relevos + maquina de estados + atasco por encoder + USB CDC |
 | 5 | 2026-08-08 | 0.25-0.5 | Confirmaciones de diseno, sin cambios de codigo |
+| 6 | 2026-08-08 | 6-10 | Validacion hardware + ENCA2 + rediseno control remoto D0/D2 |

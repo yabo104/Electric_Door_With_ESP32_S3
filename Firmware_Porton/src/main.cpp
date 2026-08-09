@@ -17,4 +17,8 @@ void loop() {
 
   procesarComandoSerial();
   actualizarEstadoPuerta();
+
+#if DEBUG_PULSOS
+  mostrarPulsos();
+#endif
 }

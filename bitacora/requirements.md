@@ -77,36 +77,51 @@
 - **TRIAC sin sincronismo a `ZCROSS` por ahora** — se maneja como interruptor de estado sólido
   todo/nada (`TRIGGER` en `LOW` = máxima potencia). La rampa de arranque suave con disparo por
   ángulo de fase queda para una sesión futura (decisión del usuario).
-- **Detección de atasco vía encoder:** una interrupción en `ENCA` (`CHANGE`) actualiza un
-  timestamp (`ultimoPulsoEncoderISR`); si el TRIAC lleva más de `ENCODER_TIMEOUT_MS` (3000 ms)
-  activo sin ningún pulso, se detiene el motor y se pasa a `ERROR`. Solo se usa `ENCA` (no hace
-  falta decodificar dirección con `ENCA`/`ENCB` para esto); `ENCB` queda cableado pero sin leer.
-- **Estado `ERROR`:** hoy solo corta la potencia al entrar (vía `detenerMotor()`) y queda inerte
-  — sin recuperación automática. Qué debe pasar después (reintentar, esperar reset manual, cómo
-  se sale de `ERROR`) **queda pendiente de que el usuario lo defina**.
+- **Detección de atasco vía encoder — confirmada en hardware real (sesión 006):** una
+  interrupción actualiza un timestamp (`ultimoPulsoEncoderISR`); si el TRIAC lleva más de
+  `ENCODER_TIMEOUT_MS` (2500 ms, ajustado por el usuario tras ver la velocidad real del motor)
+  activo sin ningún pulso, se detiene el motor y se pasa a `ERROR`. Dos fuentes en paralelo
+  alimentan el mismo timestamp: `ENCA` (con un problema de hardware conocido — pull-up del
+  circuito de entrada — hoy no aporta pulsos) y `ENCA2`, un sensor Hall en `GPIO44` que sí
+  funciona (confirmado: 0 pulsos con el motor quieto, pulsos reales con el motor girando). Si se
+  arregla el hardware de `ENCA`, vuelve a sumar sin más cambios de código.
+- **Salida de `ERROR` — implementada y confirmada en hardware real (sesión 006):** botón
+  dedicado (`D2`, ver §4) saca de `ERROR` y vuelve a `DETENIDA` "como recién arrancado" — el
+  siguiente `D0` decide el sentido por la posición real de los finales de carrera. **Sin
+  reintento automático**, a propósito: un atasco puede ser una obstrucción real, y reintentar
+  por temporizador movería el motor otra vez sin que nadie lo haya verificado (mismo criterio
+  que usan los estándares de portones automáticos tipo UL 325 para fallas de obstrucción). Una
+  reversa automática alejándose de la obstrucción queda como posible mejora futura, pospuesta
+  hasta tener un sensor de obstrucción dedicado.
 - **No bloqueante:** se eliminaron los `while()`/`delay()` largos que había en el diseño anterior
   dentro de la máquina de estados (bloqueaban `loop()` y hubieran roto el timeout de atasco). Los
   tiempos (`RELAY_SETTLE_MS`, `REVERSE_STOP_MS`, `ENCODER_TIMEOUT_MS`) se miden con `millis()`
   sin bloquear.
 
-### §4 — Política del control remoto (D0/D1)
+### §4 — Política del control remoto (D0 mueve, D2 resetea fallas)
 
-- **Solo `D0` y `D1` están cableados** en esta tarjeta (`D2`/`D3` quedan configurados como
-  entrada pero sin leerse en la lógica — evita reaccionar a ruido de un pin flotante).
-- **Detección por flanco, no por nivel:** un botón mantenido presionado genera un solo comando
-  (en la transición de no-presionado a presionado), no uno por iteración del `loop()`. Con
-  antirrebote (`BOTON_DEBOUNCE_MS`, 50 ms).
-- **El sentido se decide por la posición real** (finales de carrera), no por el último
-  movimiento hecho:
-  - Portón en el fin de carrera de **abierto** → el botón **cierra**.
-  - Portón en el fin de carrera de **cerrado** → el botón **abre**.
-  - **Posición intermedia** (ningún fin de carrera activo, típicamente al arrancar con el portón
-    a medio camino) → el botón **cierra**, por defecto.
-  - Esta lógica se evalúa en cada pulsación, no solo al arrancar — si alguien mueve el portón a
-    mano estando el sistema apagado, al reconectar la próxima pulsación lee la posición real.
-  - **Confirmado por el usuario (sesión 005):** la redacción original tenía "abrir"/"cerrar"
-    invertidos; la lógica de arriba (abierta → cierra, cerrada → abre, intermedia → cierra por
-    defecto) es la correcta y ya está implementada en `porton.cpp` sin cambios.
+> Confirmado en hardware real, sesión 006. `D1`/`D3` están cableados en la tarjeta pero sin rol
+> asignado por ahora.
+
+- **`D0` — control normal (abrir/cerrar/invertir/detener parcial).** Detección por flanco, no
+  por nivel: un botón mantenido presionado genera un solo comando, no uno por iteración del
+  `loop()`. Con antirrebote (`BOTON_DEBOUNCE_MS`, 80 ms).
+  - **El sentido se decide por la posición real** (finales de carrera), no por el último
+    movimiento hecho: portón en el fin de carrera de **abierto** → `D0` **cierra**; en el de
+    **cerrado** → `D0` **abre**; **posición intermedia** (ningún fin de carrera activo — al
+    arrancar a medio camino, o tras un detenido parcial) → `D0` **cierra**, por defecto. Se
+    evalúa en cada pulsación, no solo al arrancar.
+  - **Una pulsación de `D0` durante el movimiento invierte el sentido** — nunca en caliente:
+    detiene, espera `REVERSE_STOP_MS` (500 ms), recién ahí arranca en el sentido contrario.
+  - **Dos pulsaciones de `D0` dentro de `DOBLE_PULSACION_MS` (2000 ms) durante el movimiento:
+    detiene y se queda a medio camino, sin invertir.** Pensado para apertura/cierre parcial (dejar
+    pasar una persona o una moto sin abrir del todo). Implementado en
+    `manejarPulsacionEnMovimiento()` — una segunda pulsación que caiga dentro de la ventana de
+    `REVERSE_STOP_MS` (mientras espera para iniciar la reversa) también cuenta como "doble".
+- **`D2` — reset manual de `ERROR` únicamente.** No mueve el portón. Ver §3 para la política de
+  por qué no hay reintento automático tras un atasco.
+- **`D1`/`D3` sin uso.** Se leen igualmente en el comando de prueba `4` (`requirements.md` §1)
+  pero no participan de la lógica automática.
 
 ## Modelo de datos
 

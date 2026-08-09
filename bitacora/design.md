@@ -62,6 +62,28 @@ de proyectos open-source del usuario, pensados como referencia de trabajos reali
   mueve.
 - **Consecuencias / detalle:** ver `architecture.md` → Patrones reutilizables y Brecha conocida.
 
+### 2026-08-08 — Validación en hardware real: control remoto D0/D2 y recuperación de ERROR
+
+- **Contexto:** primera sesión con la placa física conectada. Se confirmó en hardware que abrir/
+  cerrar, finales de carrera, interlock de relevos, TRIAC a máxima potencia y detección de atasco
+  funcionan. Aparecieron dos problemas de hardware (no de firmware): `ENCA`/`ENCB` con pull-ups
+  defectuosos, y el conteo de `ZCROSS` con ruido de umbral (parcialmente corregido por software).
+  El usuario pidió además: separar el botón de operar del de reset de falla, una forma de detener
+  el portón a medio camino (apertura parcial para personas/motos), y una política de salida de
+  `ERROR`.
+- **Decisión:** `D0` concentra todo el control normal (abrir/cerrar/invertir/detener parcial);
+  `D2` es un botón dedicado, exclusivo, para salir de `ERROR` — nunca reintento automático tras
+  un atasco (mismo criterio que UL 325 para fallas de obstrucción: la salida de una falla es una
+  acción humana deliberada). Detección de atasco migrada a `ENCA2` (sensor Hall en `GPIO44`),
+  confirmada limpia en banco, en paralelo con `ENCA` por si se repara. Detalle completo en
+  `requirements.md` §3/§4, patrones en `architecture.md`.
+- **Alternativas descartadas:** pulsación larga del mismo botón (`D0`) para resetear `ERROR` — se
+  descartó por un botón dedicado (`D2`): más simple de implementar y evita que una pulsación
+  normal saque de `ERROR` por accidente. Reversa automática alejándose de la obstrucción al
+  entrar en `ERROR` — se descartó por ahora: sin sensor de obstrucción dedicado, no hay forma de
+  saber hacia dónde es seguro moverse.
+- **Consecuencias / detalle:** ver `requirements.md` §3/§4 y `architecture.md`.
+
 (Repetir por decisión. Las que dejan de ser relevantes se podan; su rastro queda en el historial.)
 
 ## Glosario
@@ -69,7 +91,9 @@ de proyectos open-source del usuario, pensados como referencia de trabajos reali
 - **Portón** — la puerta/reja automatizada que controla este sistema.
 - **FC_OPEN / FC_CLOSE** — finales de carrera (reed switch) que indican portón totalmente abierto
   / cerrado.
-- **D0-D3** — canales ya decodificados del receptor RF 433MHz de los controles remotos.
+- **D0-D3** — canales ya decodificados del receptor RF 433MHz de los controles remotos. `D0` =
+  control normal (abrir/cerrar/invertir/detener parcial); `D2` = reset de `ERROR` únicamente;
+  `D1`/`D3` sin rol asignado.
 - **TRIGGER** — señal de disparo del TRIAC. Diseño final: sincronizada con `ZCROSS` (cruce por
   cero de la AC) para regular potencia por ángulo de fase. **Hoy (provisional):** sin `ZCROSS`,
   todo/nada. El TRIAC regula la **potencia** entregada al motor; no decide el sentido de giro.
@@ -78,9 +102,10 @@ de proyectos open-source del usuario, pensados como referencia de trabajos reali
 - **Motor de fase partida (110VAC)** — motor con un terminal común y dos terminales de control,
   con un capacitor (33µF/400V) entre ambos que produce el desfase necesario para girar en un
   sentido u otro según cuál terminal se energiza.
-- **ENCA / ENCB** — canales en cuadratura del encoder del motor. **Hoy solo se usa `ENCA`**, como
-  pulso de "el motor se está moviendo" (detección de atasco); no se decodifica dirección/posición
-  todavía.
+- **ENCA / ENCB** — canales en cuadratura del encoder del motor. Tienen un problema real de
+  hardware (pull-up del circuito de entrada) y hoy no aportan pulsos.
+- **ENCA2** — sensor de efecto Hall alternativo (`GPIO44`), confirmado funcionando en banco: es
+  la fuente real de detección de atasco hoy, en paralelo con `ENCA` por si se repara.
 - ADAPTAR: agregar términos de dominio adicionales según surjan (p. ej. nombre/modelo del
   operador de portón, protocolo del control remoto).
 

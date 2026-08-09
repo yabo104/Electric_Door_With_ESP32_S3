@@ -1,44 +1,39 @@
 # Estado actual
 
-> Última sesión: Sesión `5` (`2026-08-08`) — ver `sesion-005-2026-08-08.md`
+> Última sesión: Sesión `6` (`2026-08-08`) — ver `sesion-006-2026-08-08.md`
 > Índice completo de sesiones: [index.md](./index.md)
 > Protocolo de documentación: [protocol.md](../protocol.md)
 
 ## Dónde estamos
 
-- El marco **stele** está instalado y bootstrapeado (`base = bitacora`), repo sincronizado con
-  `origin/main`.
-- `Firmware_Porton/` tiene una primera implementación completa de la lógica del portón (interlock
-  de relevos, no bloqueante, timeout de atasco por encoder, USB CDC), con la lógica de control
-  remoto **ya confirmada por el usuario**. `pio run` compila limpio. **Todavía nada probado en
-  hardware real** — la próxima sesión es con la placa física en mano.
-- Aclarado: no hay conflicto de pines entre `TRIGGER` (GPIO21) y la UART de depuración (confirmada
-  en GPIO43/44, hacia un conector auxiliar).
-- Decisión de largo plazo registrada: la documentación se traduce a inglés recién al finalizar el
-  proyecto (destino: pool de proyectos open-source de referencia del usuario). Por ahora sigue en
-  español — no hay nada que traducir todavía.
+- **Primera validación completa en hardware real.** Con la placa física conectada: apertura/
+  cierre, finales de carrera, interlock de relevos, TRIAC/relevos a máxima potencia, detección de
+  atasco y recuperación de `ERROR` — todo confirmado funcionando.
+- `ENCA`/`ENCB` tienen un problema real de hardware (pull-up) y no aportan pulsos. La detección
+  de atasco corre hoy sobre `ENCA2`, un sensor Hall en `GPIO44`, confirmado limpio.
+- Control remoto rediseñado: `D0` hace todo el control normal (abrir/cerrar/invertir/detener
+  parcial con doble pulsación); `D2` es un botón dedicado, exclusivo, para salir de `ERROR`.
+- Board de PlatformIO (`esp32-s3-devkitc-1`) validado contra el módulo real
+  (`ESP32-S3-WROOM-1U-N8R8`) — ya no es un pendiente.
+- `ZCROSS` sigue con un conteo de diagnóstico aproximado (no exacto) pero no bloquea nada, porque
+  todavía no dispara el TRIAC.
 
 ## Próximo paso inmediato
 
-- **Sesión con la placa física:** `pio run -t upload`, validar en hardware real el interlock de
-  relevos, el timeout de atasco del encoder, los finales de carrera, y el USB CDC. Ajustar
-  `board_build.*` en `platformio.ini` si aparecen problemas de flash/PSRAM contra el módulo real
-  (`ESP32-S3-WROOM-1U-N8R8`).
+- **Control de potencia con el TRIAC** (a pedido del usuario): retomar la rampa de arranque suave
+  sincronizada con `ZCROSS`, pospuesta desde la sesión 004.
 
 ## Pendientes operativos
 
-- **Trackear en git el proyecto de KiCad renombrado.** En disco ya quedó una sola carpeta,
-  `PCB_Door_Controller/` (la otra variante con guion bajo, `PCB_Door_Controller_/`, ya no está),
-  pero sigue sin commitear — git todavía tiene `PCB_puerta/` como borrado pendiente. Ojo: dentro
-  de `PCB_Door_Controller/` los archivos del proyecto KiCad se llaman `PCB_Door_Controller_.*`
-  (con guion bajo al final, distinto del nombre de la carpeta) — parece un rename incompleto;
-  confirmar con el usuario antes de commitear el rename.
-- Qué hacer al entrar/salir del estado `ERROR` (atasco) — el usuario lo define más adelante.
-- Rampa de arranque suave del TRIAC vía `ZCROSS` — pospuesta a una sesión futura.
-- Traducción de la documentación a inglés — tarea de **cierre de proyecto**, no de ahora.
+- Resolver la carpeta de KiCad renombrada (`PCB_Door_Controller/`, con archivos internos que no
+  coinciden con el nombre de la carpeta) — sigue sin tocar, sin commitear.
+- Qué hacer con el diagnóstico de pulsos (`DEBUG_PULSOS` en `porton.h`, hoy activo) cuando ya no
+  haga falta — apagarlo o quitarlo.
+- `ZCROSS`: el conteo de diagnóstico sigue sin ser exacto (antirrebote insuficiente) — no urgente.
 
 ## Referencias
 
-- `requirements.md` §3/§4 — máquina de estados y control remoto (ya confirmados).
-- `design.md` → Restricciones — decisión de idioma de documentación al finalizar el proyecto.
-- `memory.md` — gotchas de polaridad, ISR del encoder, UART de depuración (GPIO43/44).
+- `requirements.md` §3/§4 — máquina de estados, detección de atasco y control remoto (D0/D2).
+- `architecture.md` — patrones (interlock, reset dedicado, doble pulsación) y brecha de `ZCROSS`.
+- `memory.md` — gotchas de hardware (ENCA/ENCB, ENCA2, ZCROSS, incidente del osciloscopio).
+- `design.md` → Decisiones estructurales, 2026-08-08.
