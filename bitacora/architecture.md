@@ -62,6 +62,17 @@
 - **Interfaz de comandos por Serial** — `procesarComandoSerial()`, un switch sobre caracteres
   ASCII. Reusa `seleccionarSentido()`/`detenerMotor()` en vez de escribir los pines de potencia
   por su cuenta, así el interlock también aplica en modo de prueba manual.
+- **Disparo del TRIAC por ángulo de fase, con dos `esp_timer` en cascada** — `isrZcross()` (ISR
+  real de `ZCROSS`, con antirrebote) arma `timerDisparo` con el retardo de fase actual
+  (`delayDisparoActualUS`); su callback (`onDisparoTriac`) pulsa `TRIGGER` y arma `timerPulso`
+  para soltarlo tras `PULSO_TRIAC_US`. Ninguna ISR hace trabajo pesado: solo lee una variable y
+  arma un temporizador. `actualizarRampa()` (llamada desde `manejarMovimiento()`, fuera de
+  cualquier ISR) es la única que **calcula** el retardo objetivo, interpolando con `millis()` —
+  mismo patrón no bloqueante que el resto de la máquina de estados. Ver `requirements.md` §5.
+- **Cancelar temporizadores pendientes al detener** — `detenerMotor()` llama `esp_timer_stop()`
+  sobre `timerDisparo` antes de forzar `TRIGGER` a `HIGH`, para que no quede un disparo de fase
+  ya programado que dispare el gate después de haber decidido parar. Mismo principio que "cortar
+  `TRIGGER` antes de liberar los relevos" — parar significa parar todo, no solo la salida visible.
 
 ## Flujos clave
 
@@ -72,20 +83,26 @@
    `procesarComandoSerial()` → `actualizarEstadoPuerta()`.
 3. **Apertura/cierre:** en `DETENIDA`, un flanco de `D0` decide sentido según la posición real
    (`FC_OPEN`/`FC_CLOSE`) → `iniciarMovimiento()` activa el relevo → tras `RELAY_SETTLE_MS` se
-   habilita el TRIAC (`TRIGGER` en `LOW`, sin sincronismo a `ZCROSS` todavía) → en movimiento se
-   vigilan fin de carrera de destino, timeout de encoder (atasco) y un nuevo flanco de `D0`
-   (pide reversa o, si es la segunda pulsación dentro de `DOBLE_PULSACION_MS`, detiene y se queda
-   a medio camino) → al llegar al fin de carrera, `detenerMotor()` y vuelta a `DETENIDA`.
+   habilita el TRIAC y arranca la rampa de arranque suave (`RAMPA_ARRANQUE_MS`, disparo por
+   ángulo de fase sincronizado a `ZCROSS`) → en movimiento se vigilan fin de carrera de destino,
+   timeout de encoder (atasco) y un nuevo flanco de `D0` (pide reversa o, si es la segunda
+   pulsación dentro de `DOBLE_PULSACION_MS`, detiene y se queda a medio camino) → al llegar al
+   fin de carrera, `detenerMotor()` (instantáneo, sin rampa de bajada) y vuelta a `DETENIDA`.
 4. **Atasco:** sin pulsos de `ENCA`/`ENCA2` durante `ENCODER_TIMEOUT_MS` con el TRIAC ya activo →
    `detenerMotor()` + `ERROR`. Única salida: un flanco de `D2`, que vuelve a `DETENIDA` sin
    reintento automático (ver `requirements.md` §3).
 
-## Brecha conocida (pendiente, no bloqueante)
+## Brecha conocida / pendiente
 
-El contrato de hardware (`requirements.md` §2) describe `ZCROSS` como fuente de interrupción para
-sincronizar el disparo del TRIAC con el cruce por cero. **Decisión del usuario (sesión 004):**
-por ahora el TRIAC se maneja como interruptor todo/nada sin usar `ZCROSS` en absoluto; la rampa de
-arranque suave con disparo por ángulo de fase queda para una sesión futura. No es un olvido: es
-el alcance acordado. El diagnóstico de pulsos de `ZCROSS` (`DEBUG_PULSOS` en `porton.h`) sigue
-sobre-contando incluso con antirrebote — ver `memory.md` — pero no bloquea nada porque `ZCROSS`
-no dispara el TRIAC todavía.
+- **Parada suave.** Solo se implementó el arranque suave (sesión 007); la parada sigue siendo
+  instantánea. Queda pospuesta, junto con una zona de desaceleración por conteo de pulsos de
+  `ENCA2` y un modo de calibración de recorrido — a especificar por el usuario. Ver
+  `requirements.md` §5.
+- **Arranque suave sin confirmar que se perciba en el motor real** (sesión 007) — implementado y
+  subido, pero al probar un movimiento real el usuario no notó diferencia respecto del arranque
+  anterior a máxima potencia. Sin diagnóstico de osciloscopio todavía; puede ser un bug del
+  mecanismo de disparo, o una limitación física del motor de inducción ante corte de fase (reduce
+  torque más que velocidad). Ver `requirements.md` §5 y `memory.md`.
+- **`ESP_TIMER_ISR` no disponible en esta build** — los dos `esp_timer` del disparo del TRIAC
+  corren en dispatch `ESP_TIMER_TASK` (por defecto), no en una ISR real; puede haber más jitter
+  del ideal en el ángulo de disparo. Ver `memory.md`.

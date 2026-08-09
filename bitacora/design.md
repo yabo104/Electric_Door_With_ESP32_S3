@@ -84,6 +84,26 @@ de proyectos open-source del usuario, pensados como referencia de trabajos reali
   saber hacia dónde es seguro moverse.
 - **Consecuencias / detalle:** ver `requirements.md` §3/§4 y `architecture.md`.
 
+### 2026-08-08 — Arranque suave del TRIAC: alcance acotado a solo arranque
+
+- **Contexto:** el portón toma velocidad y golpea fuerte contra el tope al cerrar, con riesgo
+  para los engranajes. El usuario pidió arranque y parada suaves por ángulo de fase del TRIAC.
+  Antes de tocar código se armó un plan (vía plan mode) y se lo discutió con el usuario.
+- **Decisión:** acotar esta ronda a **solo arranque suave**, para validar primero si el mecanismo
+  de disparo por fase regula bien la potencia real (confirmado el TRIAC: `BT138-800`, pulso de
+  gate de 200us). La parada sigue siendo instantánea. Parada suave con zona de desaceleración
+  necesita conteo de pulsos de recorrido completo y un modo de calibración — el usuario lo va a
+  especificar en una sesión futura, no se improvisa ahora. Detalle en `requirements.md` §5.
+- **Alternativas descartadas:** implementar arranque y parada juntos en la misma ronda — se
+  descartó porque la parada depende de una pieza no diseñada todavía (calibración de recorrido
+  por pulsos de `ENCA2`, con un solo canal de encoder — no hay dirección, solo conteo).
+- **Estado al cierre de la sesión 007:** implementado y subido a la placa, pero **sin confirmar
+  que el arranque suave se perciba en el motor real** — el usuario no notó diferencia en la
+  primera prueba. Pendiente diagnóstico con osciloscopio (sesión futura) antes de dar la
+  funcionalidad por buena. Ver `requirements.md` §5 y `memory.md` para el detalle técnico y las
+  dos hipótesis abiertas (bug vs. limitación física del motor de inducción).
+- **Consecuencias / detalle:** ver `requirements.md` §5 y `architecture.md`.
+
 (Repetir por decisión. Las que dejan de ser relevantes se podan; su rastro queda en el historial.)
 
 ## Glosario

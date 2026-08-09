@@ -1,39 +1,42 @@
 # Estado actual
 
-> Última sesión: Sesión `6` (`2026-08-08`) — ver `sesion-006-2026-08-08.md`
+> Última sesión: Sesión `7` (`2026-08-08`) — ver `sesion-007-2026-08-08.md`
 > Índice completo de sesiones: [index.md](./index.md)
 > Protocolo de documentación: [protocol.md](../protocol.md)
 
 ## Dónde estamos
 
-- **Primera validación completa en hardware real.** Con la placa física conectada: apertura/
-  cierre, finales de carrera, interlock de relevos, TRIAC/relevos a máxima potencia, detección de
-  atasco y recuperación de `ERROR` — todo confirmado funcionando.
-- `ENCA`/`ENCB` tienen un problema real de hardware (pull-up) y no aportan pulsos. La detección
-  de atasco corre hoy sobre `ENCA2`, un sensor Hall en `GPIO44`, confirmado limpio.
-- Control remoto rediseñado: `D0` hace todo el control normal (abrir/cerrar/invertir/detener
-  parcial con doble pulsación); `D2` es un botón dedicado, exclusivo, para salir de `ERROR`.
-- Board de PlatformIO (`esp32-s3-devkitc-1`) validado contra el módulo real
-  (`ESP32-S3-WROOM-1U-N8R8`) — ya no es un pendiente.
-- `ZCROSS` sigue con un conteo de diagnóstico aproximado (no exacto) pero no bloquea nada, porque
-  todavía no dispara el TRIAC.
+- Arranque suave del TRIAC implementado: `ZCROSS` dispara el gate del TRIAC (`BT138-800`) por
+  ángulo de fase, con una rampa de potencia al iniciar cada movimiento (`requirements.md` §5).
+  Compila y corre sin crash en la placa real.
+- **Sin confirmar que se perciba en el motor real.** El usuario probó un movimiento y no notó
+  diferencia respecto del arranque anterior a máxima potencia. Dos hipótesis abiertas, ninguna
+  confirmada: (a) un bug en el mecanismo de disparo, (b) el motor de inducción responde poco en
+  velocidad a un corte de fase moderado (reduce más el torque). Falta el dato del osciloscopio.
+- La parada sigue siendo instantánea a propósito — parada suave queda pospuesta a una sesión
+  futura, junto con calibración de recorrido por pulsos de `ENCA2` (el usuario la va a
+  especificar).
+- Efecto lateral bueno: el diagnóstico de `ZCROSS` (`DEBUG_PULSOS`) ya cuenta exacto (120/s),
+  tras subir el antirrebote a 3000us — ya no es un pendiente.
 
 ## Próximo paso inmediato
 
-- **Control de potencia con el TRIAC** (a pedido del usuario): retomar la rampa de arranque suave
-  sincronizada con `ZCROSS`, pospuesta desde la sesión 004.
+- **El usuario va a probar con el osciloscopio** (`ZCROSS` vs `TRIGGER` durante un movimiento
+  real) y va a traer el resultado. Con eso se decide si hay que corregir el mecanismo de disparo
+  o si el arranque suave ya funciona pero no es perceptible con estos parámetros.
 
 ## Pendientes operativos
 
-- Resolver la carpeta de KiCad renombrada (`PCB_Door_Controller/`, con archivos internos que no
-  coinciden con el nombre de la carpeta) — sigue sin tocar, sin commitear.
-- Qué hacer con el diagnóstico de pulsos (`DEBUG_PULSOS` en `porton.h`, hoy activo) cuando ya no
-  haga falta — apagarlo o quitarlo.
-- `ZCROSS`: el conteo de diagnóstico sigue sin ser exacto (antirrebote insuficiente) — no urgente.
+- Diagnóstico de osciloscopio del arranque suave (ver arriba) — bloquea seguir ajustando la
+  rampa a ciegas.
+- Resolver la carpeta de KiCad renombrada (`PCB_Door_Controller/`) — sigue sin tocar.
+- Parada suave + calibración de recorrido — diseño pendiente, a especificar por el usuario.
+- `ESP_TIMER_ISR` no disponible en esta build — los timers del TRIAC corren en dispatch
+  `ESP_TIMER_TASK` (más jitter que el ideal) — no bloqueante, pero anotado.
 
 ## Referencias
 
-- `requirements.md` §3/§4 — máquina de estados, detección de atasco y control remoto (D0/D2).
-- `architecture.md` — patrones (interlock, reset dedicado, doble pulsación) y brecha de `ZCROSS`.
-- `memory.md` — gotchas de hardware (ENCA/ENCB, ENCA2, ZCROSS, incidente del osciloscopio).
-- `design.md` → Decisiones estructurales, 2026-08-08.
+- `requirements.md` §5 — arranque suave del TRIAC, alcance y parámetros.
+- `architecture.md` — patrón de disparo por fase (dos `esp_timer` en cascada) y brecha conocida.
+- `memory.md` — gotchas técnicos y las dos hipótesis abiertas sobre por qué no se percibe.
+- `design.md` → Decisiones estructurales, 2026-08-08 ("Arranque suave del TRIAC...").

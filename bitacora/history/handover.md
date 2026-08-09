@@ -6,10 +6,10 @@ SIN_TRABAJO_ACTIVO
 
 ## Última sesión cerrada
 
-Sesión `6` (`2026-08-08`) — Primera validación en hardware real: control remoto D0/D2, doble
-pulsación, ENCA2 (sensor Hall) y recuperación de ERROR, todo confirmado funcionando en la placa
-física. Ver `sesion-006-2026-08-08.md` en `bitacora/history/`.
-No hay trabajo a medias. Próximo tema: control de potencia con el TRIAC (rampa por ZCROSS).
+Sesión `7` (`2026-08-08`) — Arranque suave del TRIAC (disparo por ángulo de fase, sincronizado a
+`ZCROSS`), implementado y subido a la placa, pero **sin confirmar** que se perciba en el motor
+real. Ver `sesion-007-2026-08-08.md` en `bitacora/history/`.
+No hay trabajo a medias. Próximo paso: el usuario prueba con el osciloscopio y trae el resultado.
 
 <!-- =========================================================================
      Cuando arranca un cambio interrumpible, SOBRESCRIBIR con la forma EN_PROGRESO:

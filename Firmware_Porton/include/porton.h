@@ -5,7 +5,8 @@
 
 /* Salida LED / BUZZER. Activo en LOW. */
 #define LED         2
-/* Cruce por cero de la AC. No se usa todavia: el TRIAC se maneja como interruptor on/off. */
+/* Cruce por cero de la AC. Sincroniza el disparo del TRIAC por angulo de fase (ver
+   RAMPA_ARRANQUE_MS mas abajo). */
 #define ZCROSS      3
 
 /* Entradas del receptor RF 433MHz.
@@ -24,7 +25,8 @@
 #define FC_OPEN     15
 #define FC_CLOSE    16
 
-/* Disparo del TRIAC. Activo en LOW. */
+/* Disparo del TRIAC (BT138-800). Activo en LOW. Pulso de gate corto (PULSO_TRIAC_US), disparado
+   por angulo de fase desde ZCROSS -- no se mantiene fijo en LOW como antes. */
 #define TRIGGER     21
 
 /* Relevos de sentido. Activos en LOW. NUNCA ambos activos a la vez (ver seleccionarSentido()
@@ -43,11 +45,34 @@
                                    // (detiene y deja el porton a medio camino, sin invertir)
 
 /* Antirrebote del pulso de ZCROSS, en microsegundos. El comparador analogico puede generar mas
-   de un flanco de subida muy cercano en el mismo cruce (confirmado: ~400/s medidos por firmware
-   contra ~120/s reales medidos en el osciloscopio). Se ignoran flancos que lleguen antes de este
-   tiempo desde el ultimo aceptado. 1000us da margen de sobra frente a los ~8.3ms entre cruces
-   reales a 60Hz. */
-#define ZCROSS_DEBOUNCE_US  1000
+   de un flanco de subida muy cercano en el mismo cruce (confirmado con osciloscopio: la senal
+   real es limpia, ~120,8Hz, pero el firmware seguia contando ~2x con 1000us de antirrebote). Se
+   ignoran flancos que lleguen antes de este tiempo desde el ultimo aceptado. 3000us sigue con
+   margen de sobra frente a los ~8333us entre cruces reales a 60Hz, y evita que un flanco espurio
+   arme el disparo del TRIAC dos veces para el mismo cruce real. */
+#define ZCROSS_DEBOUNCE_US  3000
+
+/* --- Disparo del TRIAC por angulo de fase (arranque suave) ---
+   SEMICICLO_US: duracion aproximada de un semiciclo de red a 60Hz (confirmado: ZCROSS mide
+   ~120,8Hz = 2x60Hz). Sirve de referencia para los otros valores, no se usa como limite duro en
+   el codigo.
+   PULSO_TRIAC_US: ancho del pulso de gate del BT138-800 (confirmado por el usuario, ya probado
+   en proyectos anteriores).
+   DISPARO_US_MAX: retardo de disparo en potencia de crucero (maxima potencia util) -- chico,
+   apenas por encima de PULSO_TRIAC_US.
+   DISPARO_US_MIN: retardo de disparo al INICIO de la rampa de arranque (potencia baja). ~50% del
+   semiciclo es un punto de partida conservador -- ya da bastante menos potencia que el crucero
+   sin acercarse a que el motor no tenga torque para arrancar. Requiere ajuste empirico con el
+   motor real: si no arranca, bajar (mas potencia); si el arranque sigue brusco, subir.
+   RAMPA_ARRANQUE_MS: duracion de la rampa (interpola DISPARO_US_MIN -> DISPARO_US_MAX). Despues
+   de este tiempo el disparo queda fijo en DISPARO_US_MAX, igual que el diseno anterior (todo/
+   nada), hasta que el motor se detiene. La PARADA sigue siendo instantanea -- no hay rampa de
+   bajada todavia (queda para una sesion futura, con calibracion de recorrido por ENCA2). */
+#define SEMICICLO_US        8333
+#define PULSO_TRIAC_US      200
+#define DISPARO_US_MAX      300
+#define DISPARO_US_MIN      4200
+#define RAMPA_ARRANQUE_MS   1200
 
 /* --- Diagnostico temporal de pulsos (ENCA/ENCB/ZCROSS/ENCA2) ---
    Para quitarlo: poner DEBUG_PULSOS en 0 (no hace falta borrar codigo). */

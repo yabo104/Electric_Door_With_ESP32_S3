@@ -1,4 +1,5 @@
 #include "porton.h"
+#include "esp_timer.h"
 
 char comando = 0;
 
@@ -18,6 +19,44 @@ static bool estadoResetAnterior = false;   // para detectar flanco de subida del
 static unsigned long tUltimoReset = 0;     // antirrebote del boton de reset
 static unsigned long tUltimaPulsacionMovimiento = 0;  // para detectar doble pulsacion de D0
 
+/* --- Disparo del TRIAC por angulo de fase, sincronizado a ZCROSS --- */
+
+static portMUX_TYPE muxRampa = portMUX_INITIALIZER_UNLOCKED;
+static volatile uint32_t delayDisparoActualUS = DISPARO_US_MAX;  // leido por isrZcross()
+static unsigned long tInicioRampa = 0;      // cuando arranco el TRIAC en este movimiento
+static volatile unsigned long tUltimoZcrossUS = 0;  // antirrebote de ZCROSS (real, no solo diag.)
+static esp_timer_handle_t timerDisparo = NULL;  // dispara el gate tras el retardo de fase
+static esp_timer_handle_t timerPulso = NULL;    // apaga el pulso de gate tras PULSO_TRIAC_US
+
+// Se llama solo desde manejarMovimiento(), mientras triacActivo. Interpola el retardo de disparo
+// entre DISPARO_US_MIN (al arrancar) y DISPARO_US_MAX (potencia de crucero) durante
+// RAMPA_ARRANQUE_MS; despues queda fijo en DISPARO_US_MAX. No bloqueante.
+static void actualizarRampa() {
+  unsigned long elapsed = millis() - tInicioRampa;
+  uint32_t delay;
+  if (elapsed >= RAMPA_ARRANQUE_MS) {
+    delay = DISPARO_US_MAX;
+  } else {
+    delay = DISPARO_US_MIN -
+            (uint32_t)(((uint64_t)(DISPARO_US_MIN - DISPARO_US_MAX) * elapsed) / RAMPA_ARRANQUE_MS);
+  }
+  portENTER_CRITICAL(&muxRampa);
+  delayDisparoActualUS = delay;
+  portEXIT_CRITICAL(&muxRampa);
+}
+
+// Callbacks de los esp_timer (corren en la tarea de esp_timer, no en una ISR real -- ver la nota
+// en inicializarPines()). Se mantienen minimos igual: un digitalWrite y, en el primero, programar
+// el segundo.
+static void IRAM_ATTR onDisparoTriac(void* arg) {
+  digitalWrite(TRIGGER, LOW);
+  esp_timer_start_once(timerPulso, PULSO_TRIAC_US);
+}
+
+static void IRAM_ATTR onFinPulsoTriac(void* arg) {
+  digitalWrite(TRIGGER, HIGH);
+}
+
 /* --- Interrupcion del encoder: solo registra que hubo un pulso, no cuenta ni decodifica --- */
 
 #if DEBUG_PULSOS
@@ -26,7 +65,6 @@ static volatile unsigned long pulsosEncA = 0;
 static volatile unsigned long pulsosEncB = 0;
 static volatile unsigned long pulsosZcross = 0;
 static volatile unsigned long pulsosEncA2 = 0;
-static volatile unsigned long tUltimoZcrossUS = 0;  // para el antirrebote de ZCROSS
 static unsigned long tUltimoReportePulsos = 0;
 #endif
 
@@ -54,24 +92,34 @@ static void IRAM_ATTR isrEncA2() {
 #endif
 }
 
-#if DEBUG_PULSOS
-// Diagnostico temporal: ENCB y ZCROSS no se usan todavia para nada mas que contar pulsos aqui.
-static void IRAM_ATTR isrEncBDiag() {
-  portENTER_CRITICAL_ISR(&muxPulsos);
-  pulsosEncB++;
-  portEXIT_CRITICAL_ISR(&muxPulsos);
-}
-
-static void IRAM_ATTR isrZcrossDiag() {
-  // Antirrebote en la propia ISR: el comparador analogico genera mas de un flanco de subida
-  // muy cercano en el mismo cruce (confirmado con osciloscopio + este mismo contador). Se
-  // descarta un flanco si llego a menos de ZCROSS_DEBOUNCE_US del ultimo aceptado.
+// ZCROSS: sincroniza el disparo del TRIAC por angulo de fase. Real desde esta sesion (antes era
+// solo diagnostico) -- por eso existe siempre, igual que isrEncA2. Antirrebote obligatorio (no
+// solo para el conteo): el comparador analogico genera mas de un flanco de subida muy cercano en
+// el mismo cruce real, y armar el disparo dos veces por el mismo cruce es justo lo que este
+// antirrebote evita.
+static void IRAM_ATTR isrZcross() {
   unsigned long ahoraUS = micros();
   if (ahoraUS - tUltimoZcrossUS < ZCROSS_DEBOUNCE_US) return;
   tUltimoZcrossUS = ahoraUS;
 
+#if DEBUG_PULSOS
   portENTER_CRITICAL_ISR(&muxPulsos);
   pulsosZcross++;
+  portEXIT_CRITICAL_ISR(&muxPulsos);
+#endif
+
+  if (!triacActivo) return;  // motor detenido: no hay nada que disparar
+
+  uint32_t delay = delayDisparoActualUS;  // lectura de 32 bits, atomica en este chip
+  esp_timer_stop(timerDisparo);           // por si quedaba uno armado del cruce anterior
+  esp_timer_start_once(timerDisparo, delay);
+}
+
+#if DEBUG_PULSOS
+// Diagnostico temporal: ENCB no se usa todavia para nada mas que contar pulsos aqui.
+static void IRAM_ATTR isrEncBDiag() {
+  portENTER_CRITICAL_ISR(&muxPulsos);
+  pulsosEncB++;
   portEXIT_CRITICAL_ISR(&muxPulsos);
 }
 
@@ -114,9 +162,10 @@ static void seleccionarSentido(char sentido) {
 }
 
 static void detenerMotor() {
-  digitalWrite(TRIGGER, HIGH);   // corta potencia primero
+  triacActivo = false;           // primero: isrZcross() ya no arma disparos nuevos
+  esp_timer_stop(timerDisparo);  // cancela un disparo de fase que ya haya quedado programado
+  digitalWrite(TRIGGER, HIGH);   // corta potencia
   seleccionarSentido(0);         // y libera el sentido (los dos relevos a HIGH)
-  triacActivo = false;
 }
 
 static void iniciarMovimiento(char sentido) {
@@ -220,13 +269,21 @@ static void manejarDetenida() {
 }
 
 static void manejarMovimiento(char sentido, uint8_t pinFinCarreraDestino) {
-  // 1) Habilitar el TRIAC recien despues del asentamiento del relevo. Por ahora sin sincronismo
-  //    a ZCROSS: se trata como interruptor de estado solido todo/nada (maxima potencia).
+  // 1) Habilitar el TRIAC recien despues del asentamiento del relevo, arrancando la rampa de
+  //    arranque suave (DISPARO_US_MIN -> DISPARO_US_MAX en RAMPA_ARRANQUE_MS). El disparo real
+  //    lo hace isrZcross(), sincronizado a cada cruce por cero -- aqui solo se arma el estado.
   if (!triacActivo && (millis() - tInicioSentido >= RELAY_SETTLE_MS)) {
-    digitalWrite(TRIGGER, LOW);
+    tInicioRampa = millis();
+    portENTER_CRITICAL(&muxRampa);
+    delayDisparoActualUS = DISPARO_US_MIN;
+    portEXIT_CRITICAL(&muxRampa);
     triacActivo = true;
     // El timeout de atasco cuenta desde que hay potencia real, no desde que arranco el settle.
     ultimoPulsoEncoderISR = millis();
+  }
+
+  if (triacActivo) {
+    actualizarRampa();
   }
 
   // 2) Fin de carrera de destino alcanzado -> detener.
@@ -282,11 +339,33 @@ void inicializarPines() {
   pinMode(ENCA2, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(ENCA2), isrEncA2, CHANGE);
 
+  // Temporizadores del disparo del TRIAC por angulo de fase (ver isrZcross()/actualizarRampa()).
+  // Dispatch por defecto (ESP_TIMER_TASK): esta build no tiene habilitado ESP_TIMER_ISR
+  // (dispatch en contexto de interrupcion) -- el callback corre en la tarea de esp_timer, de
+  // prioridad alta pero no una ISR real. Puede haber algo mas de jitter que el ideal; a
+  // confirmar con el osciloscopio si el disparo queda lo bastante preciso.
+  const esp_timer_create_args_t argsDisparo = {
+    .callback = &onDisparoTriac,
+    .arg = nullptr,
+    .name = "disparo_triac",
+  };
+  esp_timer_create(&argsDisparo, &timerDisparo);
+
+  const esp_timer_create_args_t argsPulso = {
+    .callback = &onFinPulsoTriac,
+    .arg = nullptr,
+    .name = "fin_pulso_triac",
+  };
+  esp_timer_create(&argsPulso, &timerPulso);
+
+  // ZCROSS: real desde esta sesion (ver isrZcross), no solo diagnostico. Un pulso en alto por
+  // cada cruce por cero -> RISING.
+  attachInterrupt(digitalPinToInterrupt(ZCROSS), isrZcross, RISING);
+
 #if DEBUG_PULSOS
-  // Diagnostico temporal (ver porton.h -> DEBUG_PULSOS): cuenta pulsos de ENCB y ZCROSS, que hoy
-  // no se usan para nada mas. ZCROSS es un pulso en alto por cada cruce por cero -> RISING.
+  // Diagnostico temporal (ver porton.h -> DEBUG_PULSOS): cuenta pulsos de ENCB, que hoy no se usa
+  // para nada mas.
   attachInterrupt(digitalPinToInterrupt(ENCB), isrEncBDiag, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(ZCROSS), isrZcrossDiag, RISING);
 #endif
 }
 

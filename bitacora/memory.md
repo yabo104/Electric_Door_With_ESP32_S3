@@ -34,9 +34,10 @@ Diseño de la máquina de estados (sesión 004) en `requirements.md` §3/§4 y `
   `src/porton.cpp`) — nunca con `digitalWrite` directo en otro lado. Esa función es el interlock:
   escribe los dos pines juntos, así que nunca quedan ambos en `LOW`. Si se agrega código nuevo que
   necesite mover el motor, pasar por ahí (o por `detenerMotor()`), no escribir los relevos aparte.
-- **`TRIGGER` (disparo del TRIAC) es activo en LOW.** Por ahora se maneja como interruptor
-  todo/nada (sin sincronismo a `ZCROSS`): `LOW` = máxima potencia, `HIGH` = apagado. Se habilita
-  recién `RELAY_SETTLE_MS` después de elegir el relevo, nunca junto con él.
+- **`TRIGGER` (disparo del TRIAC, `BT138-800`) es activo en LOW.** Desde la sesión 007 ya **no**
+  se mantiene fijo en `LOW`: se pulsa por `PULSO_TRIAC_US` (200us) en cada semiciclo, en el
+  momento que decide el retardo de fase (`delayDisparoActualUS`) — ver "Disparo del TRIAC" más
+  abajo. Se habilita recién `RELAY_SETTLE_MS` después de elegir el relevo, nunca junto con él.
 - **`LED` es activo en LOW** (nivel 0 = encendido).
 - **`FC_OPEN`/`FC_CLOSE` usan `INPUT_PULLUP`.** Final de carrera activado se lee como `LOW`; la
   lógica comprueba con `!digitalRead(FC_OPEN)`. Se leen por *polling* (no por interrupción) — a
@@ -64,17 +65,38 @@ Diseño de la máquina de estados (sesión 004) en `requirements.md` §3/§4 y `
   `INPUT_PULLUP` asumido como para un sensor Hall típico de salida open-collector — a confirmar
   contra el datasheet del sensor puntual. Si se arregla el hardware de `ENCA`, vuelve a sumar
   sin más cambios (las dos ISR alimentan el mismo timestamp).
-- **`ZCROSS`: contrato de hardware confirmado por osciloscopio (PicoScope 2208, sesión 006),
-  señal limpia a ~120,8 Hz** (un pulso ascendente por semiciclo — coherente con 60Hz de red). El
-  método de conteo por firmware (interrupción `RISING` simple) medía ~400-440 pulsos/s, ~3.4x más
-  — **no es la señal, es una interrupción disparándose varias veces muy cerca en el mismo cruce**
-  (ruido/rebote de umbral, invisible a 5ms/div en el osciloscopio). Se agregó antirrebote por
-  software (`ZCROSS_DEBOUNCE_US`, en `porton.h`) en la ISR de diagnóstico; con 1000us el conteo
-  bajó a ~231-237/s (~2x lo real) — **sigue sin quedar en el número correcto**, probablemente hay
-  un segundo flanco válido más allá de esa ventana. Pendiente: probar subiendo
-  `ZCROSS_DEBOUNCE_US` (con margen de sobra respecto a los ~8300us reales entre pulsos) antes de
-  dar el conteo por bueno. `ZCROSS` sigue sin usarse para disparar el TRIAC (eso sigue pospuesto,
-  decisión de la sesión 004) — este trabajo es solo para tener el conteo de diagnóstico correcto.
+- **`ZCROSS`: resuelto el sobre-conteo (sesión 007).** Señal real limpia a ~120,8 Hz (confirmada
+  por osciloscopio, sesión 006). El firmware contaba ~231-237/s con `ZCROSS_DEBOUNCE_US = 1000` —
+  **subir el antirrebote a 3000us lo dejó en 120/s exactos.** El motivo de subirlo no fue el
+  conteo en sí: con el disparo de fase real (sesión 007), un flanco espurio cercano al real podía
+  armar el `esp_timer` del TRIAC dos veces para el mismo cruce, y 1000us no alcanzaba para
+  filtrarlo.
+- **Disparo del TRIAC por ángulo de fase, sincronizado a `ZCROSS` (sesión 007) — implementado,
+  SIN CONFIRMAR que funcione como se espera.** Mecanismo: `isrZcross()` (real desde esta sesión)
+  arma `timerDisparo` (`esp_timer`) con el retardo de fase actual; su callback pulsa `TRIGGER` y
+  arma `timerPulso` para soltarlo tras `PULSO_TRIAC_US`. La rampa de arranque (`actualizarRampa()`
+  en `manejarMovimiento()`) interpola el retardo entre `DISPARO_US_MIN` (potencia baja, al
+  arrancar) y `DISPARO_US_MAX` (potencia de crucero) durante `RAMPA_ARRANQUE_MS`. Detalle completo
+  y alcance en `requirements.md` §5.
+  - **Al probar en hardware real, el usuario no notó ninguna diferencia** respecto del arranque a
+    máxima potencia anterior — sin diagnóstico de osciloscopio todavía (queda para la próxima
+    sesión). No asumir que el arranque suave funciona ni que no funciona hasta confirmarlo.
+  - **`ESP_TIMER_ISR` (dispatch en contexto de interrupción real) no está disponible en esta
+    build** de Arduino-ESP32 — falló la compilación al pedirlo. Los dos `esp_timer` usan el
+    dispatch por defecto (`ESP_TIMER_TASK`, corren en la tarea de esp_timer, prioridad alta pero
+    no una ISR real). Puede tener más jitter del ideal para la precisión del ángulo de disparo —
+    a confirmar con el osciloscopio.
+  - **Sin verificar en este entorno:** llamar `esp_timer_start_once()`/`esp_timer_stop()` desde
+    una ISR de GPIO real (`isrZcross()`) — es un patrón usado en proyectos de dimmers ESP32, pero
+    no hay confirmación propia de que ande bien en esta build/versión concreta. Si el disparo no
+    varía nada durante la rampa, revisar esto primero.
+  - **Hipótesis abierta, no confirmada:** el motor es de fase partida (inducción). En un motor de
+    inducción, reducir el voltaje RMS por corte de fase reduce sobre todo el **torque**, no la
+    **velocidad** de forma directa — a diferencia de un motor universal, donde el frenado por
+    corte de fase se nota mucho más. Si el mecanismo de disparo está funcionando bien
+    eléctricamente, igual podría no notarse como "más lento" al oído/vista. No descartar el
+    diagnóstico con osciloscopio por esta hipótesis — hay que confirmar primero si el retardo
+    realmente varía.
 - **UART de depuración: confirmado en `GPIO43` (TXD0) / `GPIO44` (RXD0)**, hacia un conector
   auxiliar en la placa (confirmado por el usuario, sesión 005) — **no** hay conflicto con
   `TRIGGER` (`GPIO21`). El comentario del `.ino` original (`// HW UART TXD pin IO21`) estaba
