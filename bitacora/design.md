@@ -22,9 +22,12 @@ de proyectos open-source del usuario, pensados como referencia de trabajos reali
 
 ## Restricciones y no-negociables
 
-- **Sin Wi-Fi ni Bluetooth por ahora.** El ESP32-S3 los tiene disponibles pero no se usan todavía.
-  A futuro: Bluetooth para controlar el portón desde una app móvil (no hay diseño de ese
-  protocolo todavía — cuando se aborde, documentar en `requirements.md`).
+- **Wi-Fi y Bluetooth apagados activamente** (`apagarRadios()`, sesión 008) — el ESP32-S3 los
+  tiene disponibles pero el proyecto no los usa; se descartó además un modo de bajo consumo
+  (deep sleep) para ahorrar energía/calor, porque el equipo está alimentado de red, no a batería
+  (detalle en Decisiones estructurales más abajo). A futuro: Bluetooth para controlar el portón
+  desde una app móvil (no hay diseño de ese protocolo todavía — cuando se aborde, hay que volver
+  a habilitar el radio explícitamente, y documentar el protocolo en `requirements.md`).
 - **Idioma de la documentación (decisión del usuario, sesión 005):** durante el desarrollo activo
   se mantiene en español (es lo que ya hay y lo que configura `stele.config.md`). **Cuando el
   proyecto se dé por terminado**, se traduce todo a inglés, porque el destino es un pool de
@@ -104,6 +107,29 @@ de proyectos open-source del usuario, pensados como referencia de trabajos reali
   dos hipótesis abiertas (bug vs. limitación física del motor de inducción).
 - **Consecuencias / detalle:** ver `requirements.md` §5 y `architecture.md`.
 
+### 2026-08-11 — TRIAC: release en potencia fija; posición inferida por última llegada confirmada
+
+- **Contexto:** sesión larga de pruebas en el portón físico real (no solo el motor en banco).
+  Salieron a la luz dos problemas que la sesión 007 no había podido ver: (1) la rampa de arranque
+  suave pasaba por ángulos de disparo cercanos al cruce por cero donde el TRIAC no engancha de
+  forma confiable con esta carga inductiva, generando paradas falsas por "atasco"; (2) por
+  inercia del motor, el imán de un fin de carrera puede rebasar el sensor al frenar, dejando
+  momentáneamente "ningún fin de carrera activo" aunque el portón esté efectivamente en esa
+  posición — el firmware volvía a intentar moverse hacia el mismo tope.
+- **Decisión:** cerrar el release con el TRIAC en **potencia fija** (85%, calibrada probando
+  varios niveles en el portón real — ver `requirements.md` §5), la rampa de arranque suave
+  pospuesta. Y agregar `ultimaLlegadaConfirmada`: cuando ningún fin de carrera está activo, el
+  sentido se decide contra la última llegada confirmada de verdad, no siempre "cierra por
+  defecto" (`requirements.md` §4). También se agregaron, a pedido del usuario: contador de
+  trayecto por pulsos de `ENCA2` (§6, para datos de una futura calibración de recorrido) e
+  indicador LED (§7, pensado para la instalación final sin acceso al Serial).
+- **Alternativas descartadas:** insistir con la rampa ajustando solo los tiempos — se descartó
+  porque el problema no era de tiempos sino de que la rampa pasaba por una zona de disparo donde
+  el TRIAC no engancha bien; había que resolver eso primero (queda como base para retomar la
+  rampa más adelante).
+- **Consecuencias / detalle:** ver `requirements.md` §4/§5/§6/§7, patrones en `architecture.md`,
+  hallazgos técnicos en `memory.md`.
+
 (Repetir por decisión. Las que dejan de ser relevantes se podan; su rastro queda en el historial.)
 
 ## Glosario
@@ -114,9 +140,10 @@ de proyectos open-source del usuario, pensados como referencia de trabajos reali
 - **D0-D3** — canales ya decodificados del receptor RF 433MHz de los controles remotos. `D0` =
   control normal (abrir/cerrar/invertir/detener parcial); `D2` = reset de `ERROR` únicamente;
   `D1`/`D3` sin rol asignado.
-- **TRIGGER** — señal de disparo del TRIAC. Diseño final: sincronizada con `ZCROSS` (cruce por
-  cero de la AC) para regular potencia por ángulo de fase. **Hoy (provisional):** sin `ZCROSS`,
-  todo/nada. El TRIAC regula la **potencia** entregada al motor; no decide el sentido de giro.
+- **TRIGGER** — señal de disparo del TRIAC, sincronizada con `ZCROSS` (cruce por cero de la AC)
+  por ángulo de fase. **Release actual:** ángulo fijo (potencia constante, sin rampa) — ver
+  `requirements.md` §5. El TRIAC regula la **potencia** entregada al motor; no decide el sentido
+  de giro (eso lo hacen los relevos).
 - **RELAY_OP / RELAY_CL** — relevos que eligen el **sentido** de giro del motor (qué terminal de
   control queda energizado), no la potencia.
 - **Motor de fase partida (110VAC)** — motor con un terminal común y dos terminales de control,
@@ -125,7 +152,11 @@ de proyectos open-source del usuario, pensados como referencia de trabajos reali
 - **ENCA / ENCB** — canales en cuadratura del encoder del motor. Tienen un problema real de
   hardware (pull-up del circuito de entrada) y hoy no aportan pulsos.
 - **ENCA2** — sensor de efecto Hall alternativo (`GPIO44`), confirmado funcionando en banco: es
-  la fuente real de detección de atasco hoy, en paralelo con `ENCA` por si se repara.
+  la fuente real de detección de atasco hoy, en paralelo con `ENCA` por si se repara. También
+  alimenta el contador de trayecto (`requirements.md` §6).
+- **Última llegada confirmada** — el último fin de carrera que el firmware vio activarse de
+  verdad (no inferido). Decide el sentido del próximo movimiento cuando ningún fin de carrera
+  está activo en el momento de la pulsación (`requirements.md` §4).
 - ADAPTAR: agregar términos de dominio adicionales según surjan (p. ej. nombre/modelo del
   operador de portón, protocolo del control remoto).
 

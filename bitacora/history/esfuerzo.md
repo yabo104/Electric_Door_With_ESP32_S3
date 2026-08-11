@@ -14,3 +14,4 @@
 | 5 | 2026-08-08 | 0.25-0.5 | Confirmaciones de diseno, sin cambios de codigo |
 | 6 | 2026-08-08 | 6-10 | Validacion hardware + ENCA2 + rediseno control remoto D0/D2 |
 | 7 | 2026-08-08 | 3.5-6 | Arranque suave del TRIAC por angulo de fase, sin confirmar en motor |
+| 8 | 2026-08-11 | 7-12.5 | Contador de trayecto + LED + fix de posicion + calibracion TRIAC + radios apagadas |

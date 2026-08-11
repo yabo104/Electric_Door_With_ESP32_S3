@@ -73,36 +73,51 @@
   sobre `timerDisparo` antes de forzar `TRIGGER` a `HIGH`, para que no quede un disparo de fase
   ya programado que dispare el gate después de haber decidido parar. Mismo principio que "cortar
   `TRIGGER` antes de liberar los relevos" — parar significa parar todo, no solo la salida visible.
+- **Contador de posición relativa (suma/resta según sentido)** — el contador de trayecto
+  (`contadorTrayecto`, `requirements.md` §6) no cuenta pulsos crudos: compara el sentido actual
+  (`doorStd`) contra el sentido con el que arrancó el trayecto (`sentidoTrayecto`) en cada pulso
+  de `isrEncA2()`, sumando si coinciden y restando si no. Es el mismo patrón que usaría cualquier
+  odómetro relativo sin posición absoluta — reutilizable si en el futuro hace falta estimar
+  posición en otro contexto del proyecto.
+- **Máquina de fases para efectos no bloqueantes cortos** — el parpadeo del LED
+  (`actualizarParpadeoLed()`, `requirements.md` §7) usa un patrón chico de estados (`0` inactivo,
+  `1` pausa, `2` encendido) con su propio timestamp, revisado cada iteración desde
+  `actualizarEstadoPuerta()`. Mismo enfoque no bloqueante que el resto del código; sirve de
+  plantilla para cualquier otra señal temporizada corta que se necesite más adelante (no hace
+  falta un RTOS task ni un `esp_timer` para esto).
 
 ## Flujos clave
 
-1. **Arranque:** `main.cpp:setup()` → `inicializarPines()` deja relevos y `TRIGGER` en `HIGH`
-   (desactivados), arma las interrupciones de encoder (`ENCA` y `ENCA2`, `CHANGE`) y abre
-   `Serial`.
+1. **Arranque:** `main.cpp:setup()` → `inicializarPines()` apaga WiFi/Bluetooth (`apagarRadios()`,
+   `requirements.md` §8), deja relevos, `TRIGGER` y `LED` en su estado seguro/apagado, arma las
+   interrupciones de encoder (`ENCA` y `ENCA2`, `CHANGE`) y de `ZCROSS` (`RISING`), crea los dos
+   `esp_timer` del disparo del TRIAC, y abre `Serial`.
 2. **Ciclo principal:** `main.cpp:loop()` → si hay dato en `Serial`, lo guarda en `comando` →
-   `procesarComandoSerial()` → `actualizarEstadoPuerta()`.
+   `procesarComandoSerial()` → `actualizarEstadoPuerta()` (que además revisa el botón de reset y
+   el parpadeo del LED en cada vuelta, antes del switch por estado).
 3. **Apertura/cierre:** en `DETENIDA`, un flanco de `D0` decide sentido según la posición real
-   (`FC_OPEN`/`FC_CLOSE`) → `iniciarMovimiento()` activa el relevo → tras `RELAY_SETTLE_MS` se
-   habilita el TRIAC y arranca la rampa de arranque suave (`RAMPA_ARRANQUE_MS`, disparo por
-   ángulo de fase sincronizado a `ZCROSS`) → en movimiento se vigilan fin de carrera de destino,
-   timeout de encoder (atasco) y un nuevo flanco de `D0` (pide reversa o, si es la segunda
-   pulsación dentro de `DOBLE_PULSACION_MS`, detiene y se queda a medio camino) → al llegar al
-   fin de carrera, `detenerMotor()` (instantáneo, sin rampa de bajada) y vuelta a `DETENIDA`.
+   (`FC_OPEN`/`FC_CLOSE`, o la última llegada confirmada si ninguno está activo —
+   `requirements.md` §4) → si el origen es un final de carrera confirmado, arma el contador de
+   trayecto (§6) → `iniciarMovimiento()` activa el relevo y enciende el LED fijo → tras
+   `RELAY_SETTLE_MS` se habilita el TRIAC a potencia fija (`POTENCIA_MOTOR_PCT`, sin rampa por
+   ahora — `requirements.md` §5) → en movimiento se vigilan fin de carrera de destino, timeout de
+   encoder (atasco) y un nuevo flanco de `D0` (pide reversa o, si es la segunda pulsación dentro
+   de `DOBLE_PULSACION_MS`, detiene y se queda a medio camino) → al llegar al fin de carrera,
+   `detenerMotor()` (instantáneo), se guarda la llegada confirmada, se reporta el trayecto si era
+   válido, y arranca el parpadeo del LED (§7).
 4. **Atasco:** sin pulsos de `ENCA`/`ENCA2` durante `ENCODER_TIMEOUT_MS` con el TRIAC ya activo →
-   `detenerMotor()` + `ERROR`. Única salida: un flanco de `D2`, que vuelve a `DETENIDA` sin
-   reintento automático (ver `requirements.md` §3).
+   `detenerMotor()` + `ERROR` (invalida el trayecto en curso). Única salida: un flanco de `D2`,
+   que vuelve a `DETENIDA` sin reintento automático (ver `requirements.md` §3).
 
 ## Brecha conocida / pendiente
 
-- **Parada suave.** Solo se implementó el arranque suave (sesión 007); la parada sigue siendo
-  instantánea. Queda pospuesta, junto con una zona de desaceleración por conteo de pulsos de
-  `ENCA2` y un modo de calibración de recorrido — a especificar por el usuario. Ver
-  `requirements.md` §5.
-- **Arranque suave sin confirmar que se perciba en el motor real** (sesión 007) — implementado y
-  subido, pero al probar un movimiento real el usuario no notó diferencia respecto del arranque
-  anterior a máxima potencia. Sin diagnóstico de osciloscopio todavía; puede ser un bug del
-  mecanismo de disparo, o una limitación física del motor de inducción ante corte de fase (reduce
-  torque más que velocidad). Ver `requirements.md` §5 y `memory.md`.
+- **Parada suave y arranque suave "de verdad" (con rampa).** El release (sesión 008) corre a
+  potencia fija — ver `requirements.md` §5 para el porqué (enganche inconsistente del TRIAC cerca
+  del cruce por cero con esta carga inductiva). El código de la rampa
+  (`RAMPA_ARRANQUE_MS`/`actualizarRampa()`) sigue en `porton.cpp` sin usar. Retomar ambas cosas
+  queda pospuesto a una sesión futura, con calibración de recorrido por conteo de pulsos (§6)
+  como paso previo — a especificar por el usuario.
 - **`ESP_TIMER_ISR` no disponible en esta build** — los dos `esp_timer` del disparo del TRIAC
   corren en dispatch `ESP_TIMER_TASK` (por defecto), no en una ISR real; puede haber más jitter
-  del ideal en el ángulo de disparo. Ver `memory.md`.
+  del ideal en el ángulo de disparo. No impidió que el release funcionara en el portón real. Ver
+  `memory.md`.

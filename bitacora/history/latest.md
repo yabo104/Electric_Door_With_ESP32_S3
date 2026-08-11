@@ -1,42 +1,45 @@
 # Estado actual
 
-> Última sesión: Sesión `7` (`2026-08-08`) — ver `sesion-007-2026-08-08.md`
+> Última sesión: Sesión `8` (`2026-08-11`) — ver `sesion-008-2026-08-11.md`
 > Índice completo de sesiones: [index.md](./index.md)
 > Protocolo de documentación: [protocol.md](../protocol.md)
 
 ## Dónde estamos
 
-- Arranque suave del TRIAC implementado: `ZCROSS` dispara el gate del TRIAC (`BT138-800`) por
-  ángulo de fase, con una rampa de potencia al iniciar cada movimiento (`requirements.md` §5).
-  Compila y corre sin crash en la placa real.
-- **Sin confirmar que se perciba en el motor real.** El usuario probó un movimiento y no notó
-  diferencia respecto del arranque anterior a máxima potencia. Dos hipótesis abiertas, ninguna
-  confirmada: (a) un bug en el mecanismo de disparo, (b) el motor de inducción responde poco en
-  velocidad a un corte de fase moderado (reduce más el torque). Falta el dato del osciloscopio.
-- La parada sigue siendo instantánea a propósito — parada suave queda pospuesta a una sesión
-  futura, junto con calibración de recorrido por pulsos de `ENCA2` (el usuario la va a
-  especificar).
-- Efecto lateral bueno: el diagnóstico de `ZCROSS` (`DEBUG_PULSOS`) ya cuenta exacto (120/s),
-  tras subir el antirrebote a 3000us — ya no es un pendiente.
+- **El portón funciona de punta a punta en hardware real**, validado por el usuario: abrir/
+  cerrar con un botón, inversión de sentido, detenido parcial, detección de atasco con reset
+  manual, indicador LED, y el TRIAC a potencia fija calibrada (85%, ver `requirements.md` §5).
+- Corregido un bug real de posición (rebote del imán del fin de carrera por inercia del motor) —
+  ver `ultimaLlegadaConfirmada`, `requirements.md` §4.
+- Agregado un contador de trayecto (`requirements.md` §6) como insumo para una futura calibración
+  de recorrido, y apagadas las radios Wi-Fi/Bluetooth (`requirements.md` §8, sin deep sleep — el
+  equipo va a red, no a batería).
+- Escrito el primer `README.md` de portada del repositorio, con la vista puesta en un release.
+- **Pendiente de verificar en hardware:** los últimos cambios de esta sesión (apagado de radios,
+  dos fixes menores de la revisión de código) compilan pero no se cargaron a la placa — no estaba
+  conectada al cierre.
 
 ## Próximo paso inmediato
 
-- **El usuario va a probar con el osciloscopio** (`ZCROSS` vs `TRIGGER` durante un movimiento
-  real) y va a traer el resultado. Con eso se decide si hay que corregir el mecanismo de disparo
-  o si el arranque suave ya funciona pero no es perceptible con estos parámetros.
+- Cargar la última versión a la placa real y confirmar que el comportamiento no cambió (apagado
+  de radios + fixes de revisión).
+- Crear el tag/release en GitHub para esta versión (pedido explícito del usuario, en curso).
 
 ## Pendientes operativos
 
-- Diagnóstico de osciloscopio del arranque suave (ver arriba) — bloquea seguir ajustando la
-  rampa a ciegas.
-- Resolver la carpeta de KiCad renombrada (`PCB_Door_Controller/`) — sigue sin tocar.
-- Parada suave + calibración de recorrido — diseño pendiente, a especificar por el usuario.
-- `ESP_TIMER_ISR` no disponible en esta build — los timers del TRIAC corren en dispatch
-  `ESP_TIMER_TASK` (más jitter que el ideal) — no bloqueante, pero anotado.
+- Verificar en hardware real la última carga (ver arriba).
+- Retomar arranque/parada suaves (rampa real del TRIAC) en una sesión futura — el 85% de potencia
+  fija ya es una base fiable para partir, en vez de valores sin probar.
+- Sigue sin resolver la carpeta de KiCad renombrada (`PCB_Door_Controller/`) — nombre de archivos
+  internos que no coincide con la carpeta, gerbers/producción desactualizados. El usuario la
+  sigue trabajando por su cuenta; no se toca desde acá.
+- El usuario va a iniciar otro proyecto de sistemas embebidos — sin acción pendiente en este
+  proyecto, queda anotado como contexto.
 
 ## Referencias
 
-- `requirements.md` §5 — arranque suave del TRIAC, alcance y parámetros.
-- `architecture.md` — patrón de disparo por fase (dos `esp_timer` en cascada) y brecha conocida.
-- `memory.md` — gotchas técnicos y las dos hipótesis abiertas sobre por qué no se percibe.
-- `design.md` → Decisiones estructurales, 2026-08-08 ("Arranque suave del TRIAC...").
+- `requirements.md` §4/§5/§6/§7/§8 — posición inferida, TRIAC en potencia fija, contador de
+  trayecto, LED, radios apagadas.
+- `design.md` → Decisiones estructurales, 2026-08-11.
+- `memory.md` — hallazgos técnicos de esta sesión (enganche del TRIAC, mutex del contador, etc.).
+- `README.md` (raíz) — portada del repositorio.

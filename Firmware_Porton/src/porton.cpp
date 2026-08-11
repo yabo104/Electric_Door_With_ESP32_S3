@@ -1,5 +1,6 @@
 #include "porton.h"
 #include "esp_timer.h"
+#include <WiFi.h>
 
 char comando = 0;
 
@@ -18,6 +19,23 @@ static unsigned long tUltimoD0 = 0;        // antirrebote de D0
 static bool estadoResetAnterior = false;   // para detectar flanco de subida del boton de reset
 static unsigned long tUltimoReset = 0;     // antirrebote del boton de reset
 static unsigned long tUltimaPulsacionMovimiento = 0;  // para detectar doble pulsacion de D0
+static char ultimaLlegadaConfirmada = 0;   // ultimo ABRIENDO/CERRANDO que llego a su fin de
+                                            // carrera de verdad (0 = ninguna todavia)
+
+/* --- Contador de trayecto (ENCA2): solo valido entre dos finales de carrera confirmados --- */
+
+static portMUX_TYPE muxTrayecto = portMUX_INITIALIZER_UNLOCKED;
+static volatile long contadorTrayecto = 0;   // suma en el sentido del trayecto, resta al reves
+static volatile bool trayectoActivo = false; // false = conteo invalido (origen no confirmado)
+static volatile char sentidoTrayecto = 0;    // sentido con el que arranco el trayecto actual
+
+/* --- Parpadeo no bloqueante del LED al detectar un fin de carrera --- */
+/* Fases: 0 = inactivo. 1 = pausa apagado (para que se note el flanco: el LED ya viene encendido
+   fijo desde que el motor se movia, si se prendiera de nuevo sin una pausa visible no se
+   distingue del "encendido por movimiento"). 2 = parpadeo encendido. */
+
+static uint8_t faseParpadeoLed = 0;
+static unsigned long tFaseParpadeoLed = 0;
 
 /* --- Disparo del TRIAC por angulo de fase, sincronizado a ZCROSS --- */
 
@@ -61,8 +79,6 @@ static void IRAM_ATTR onFinPulsoTriac(void* arg) {
 
 #if DEBUG_PULSOS
 static portMUX_TYPE muxPulsos = portMUX_INITIALIZER_UNLOCKED;
-static volatile unsigned long pulsosEncA = 0;
-static volatile unsigned long pulsosEncB = 0;
 static volatile unsigned long pulsosZcross = 0;
 static volatile unsigned long pulsosEncA2 = 0;
 static unsigned long tUltimoReportePulsos = 0;
@@ -70,19 +86,15 @@ static unsigned long tUltimoReportePulsos = 0;
 
 static void IRAM_ATTR isrEncoder() {
   ultimoPulsoEncoderISR = millis();
-#if DEBUG_PULSOS
-  portENTER_CRITICAL_ISR(&muxPulsos);
-  pulsosEncA++;
-  portEXIT_CRITICAL_ISR(&muxPulsos);
-#endif
 }
 
 // ENCA2: sensor Hall en GPIO44 (ver porton.h), alternativa a ENCA mientras ENCA/ENCB tengan el
 // problema de pull-up conocido en hardware. Confirmado en banco (sesion 006): 0 pulsos con el
 // motor quieto, pulsos reales con el motor girando. Alimenta la MISMA deteccion de atasco que
 // ENCA (ultimoPulsoEncoderISR) -- cualquiera de los dos canales que pulse resetea el timeout.
-// Por eso esta ISR existe siempre, no solo bajo DEBUG_PULSOS (solo el conteo para el diagnostico
-// esta condicionado).
+// Tambien alimenta el contador de trayecto (suma en el sentido del trayecto, resta al reves) --
+// ver manejarDetenida()/manejarMovimiento() para donde se arma/lee/invalida. Por eso esta ISR
+// existe siempre, no solo bajo DEBUG_PULSOS (ahi solo esta condicionado el conteo de diagnostico).
 static void IRAM_ATTR isrEncA2() {
   ultimoPulsoEncoderISR = millis();
 #if DEBUG_PULSOS
@@ -90,6 +102,16 @@ static void IRAM_ATTR isrEncA2() {
   pulsosEncA2++;
   portEXIT_CRITICAL_ISR(&muxPulsos);
 #endif
+
+  portENTER_CRITICAL_ISR(&muxTrayecto);
+  if (trayectoActivo) {
+    if (doorStd == sentidoTrayecto) {
+      contadorTrayecto++;
+    } else {
+      contadorTrayecto--;
+    }
+  }
+  portEXIT_CRITICAL_ISR(&muxTrayecto);
 }
 
 // ZCROSS: sincroniza el disparo del TRIAC por angulo de fase. Real desde esta sesion (antes era
@@ -116,13 +138,6 @@ static void IRAM_ATTR isrZcross() {
 }
 
 #if DEBUG_PULSOS
-// Diagnostico temporal: ENCB no se usa todavia para nada mas que contar pulsos aqui.
-static void IRAM_ATTR isrEncBDiag() {
-  portENTER_CRITICAL_ISR(&muxPulsos);
-  pulsosEncB++;
-  portEXIT_CRITICAL_ISR(&muxPulsos);
-}
-
 // Se llama desde loop(). No bloqueante: solo imprime cuando pasaron DEBUG_PULSOS_MS.
 void mostrarPulsos() {
   unsigned long ahora = millis();
@@ -130,23 +145,15 @@ void mostrarPulsos() {
   tUltimoReportePulsos = ahora;
 
   portENTER_CRITICAL(&muxPulsos);
-  unsigned long a  = pulsosEncA;
-  unsigned long b  = pulsosEncB;
   unsigned long z  = pulsosZcross;
   unsigned long a2 = pulsosEncA2;
-  pulsosEncA = 0;
-  pulsosEncB = 0;
   pulsosZcross = 0;
   pulsosEncA2 = 0;
   portEXIT_CRITICAL(&muxPulsos);
 
   Serial.print("[DIAG] pulsos/");
   Serial.print(DEBUG_PULSOS_MS);
-  Serial.print("ms -> ENCA=");
-  Serial.print(a);
-  Serial.print("  ENCB=");
-  Serial.print(b);
-  Serial.print("  ZCROSS=");
+  Serial.print("ms -> ZCROSS=");
   Serial.print(z);
   Serial.print("  ENCA2=");
   Serial.println(a2);
@@ -166,6 +173,7 @@ static void detenerMotor() {
   esp_timer_stop(timerDisparo);  // cancela un disparo de fase que ya haya quedado programado
   digitalWrite(TRIGGER, HIGH);   // corta potencia
   seleccionarSentido(0);         // y libera el sentido (los dos relevos a HIGH)
+  digitalWrite(LED, HIGH);       // LED activo en LOW: HIGH = apagado (motor detenido)
 }
 
 static void iniciarMovimiento(char sentido) {
@@ -174,6 +182,37 @@ static void iniciarMovimiento(char sentido) {
   triacActivo = false;
   doorStd = sentido;
   doorLastStd = sentido;
+  digitalWrite(LED, LOW);   // LED encendido fijo mientras el motor esta en movimiento
+  faseParpadeoLed = 0;      // cancela un parpadeo pendiente: ahora manda el "encendido fijo"
+}
+
+// Arranca la secuencia de parpadeo (ver declaracion de faseParpadeoLed mas arriba). No escribe el
+// LED de una -- lo primero es la pausa apagado, para que el flanco se note.
+static void iniciarParpadeoLed() {
+  faseParpadeoLed = 1;
+  tFaseParpadeoLed = millis();
+}
+
+// No bloqueante: se llama cada iteracion desde actualizarEstadoPuerta().
+static void actualizarParpadeoLed() {
+  unsigned long ahora = millis();
+  switch (faseParpadeoLed) {
+    case 1:  // pausa apagado
+      if (ahora - tFaseParpadeoLed >= LED_PAUSA_PARPADEO_MS) {
+        digitalWrite(LED, LOW);
+        tFaseParpadeoLed = ahora;
+        faseParpadeoLed = 2;
+      }
+      break;
+    case 2:  // parpadeo encendido
+      if (ahora - tFaseParpadeoLed >= LED_PARPADEO_MS) {
+        digitalWrite(LED, HIGH);
+        faseParpadeoLed = 0;
+      }
+      break;
+    default:
+      break;
+  }
 }
 
 /* --- Control remoto: D0 mueve, D2 solo saca de ERROR. Deteccion de flanco (no de nivel) --- */
@@ -223,6 +262,9 @@ static void manejarPulsacionEnMovimiento(char sentidoOpuesto) {
 
   if (esDoble) {
     sentidoPendiente = 0;
+    portENTER_CRITICAL(&muxTrayecto);
+    trayectoActivo = false;  // movimiento parcial: el trayecto queda invalido, no se reporta
+    portEXIT_CRITICAL(&muxTrayecto);
     Serial.println("Detenida por doble pulsacion (movimiento parcial)");
   } else {
     sentidoPendiente = sentidoOpuesto;
@@ -250,9 +292,7 @@ static void manejarDetenida() {
 
   if (!botonD0Presionado()) return;
 
-  // El sentido se decide por la posicion REAL (finales de carrera), no por el ultimo movimiento:
-  // abierta -> el boton cierra; cerrada -> el boton abre; posicion intermedia/desconocida
-  // (ningun fin de carrera activo, incluido un movimiento parcial anterior) -> por defecto cierra.
+  // El sentido se decide por la posicion REAL (finales de carrera) cuando hay uno activo.
   bool enFinOpen  = !digitalRead(FC_OPEN);
   bool enFinClose = !digitalRead(FC_CLOSE);
 
@@ -261,9 +301,31 @@ static void manejarDetenida() {
     sentido = CERRANDO;
   } else if (enFinClose) {
     sentido = ABRIENDO;
+  } else if (ultimaLlegadaConfirmada == CERRANDO) {
+    // Ningun fin de carrera activo, pero la ultima llegada confirmada fue "cerrada". Pasa en la
+    // practica: por la inercia del motor, el iman puede rebasar el sensor al frenar y el fin de
+    // carrera se desactiva de nuevo aunque el porton este efectivamente cerrado. Sin esto, el
+    // codigo volveria a intentar CERRAR contra el tope -- atasco mecanico real, visto en banco.
+    sentido = ABRIENDO;
+  } else if (ultimaLlegadaConfirmada == ABRIENDO) {
+    sentido = CERRANDO;
   } else {
+    // Nunca se confirmo una llegada (arranque en frio, posicion realmente desconocida) -> el
+    // default seguro sigue siendo cerrar.
     sentido = CERRANDO;
   }
+
+  // Contador de trayecto: solo arranca (en 0) si el origen es un final de carrera confirmado.
+  // Desde posicion intermedia el trayecto queda invalido -- no hay desde donde contar.
+  portENTER_CRITICAL(&muxTrayecto);
+  if (enFinOpen || enFinClose) {
+    contadorTrayecto = 0;
+    sentidoTrayecto = sentido;
+    trayectoActivo = true;
+  } else {
+    trayectoActivo = false;
+  }
+  portEXIT_CRITICAL(&muxTrayecto);
 
   iniciarMovimiento(sentido);
 }
@@ -286,12 +348,31 @@ static void manejarMovimiento(char sentido, uint8_t pinFinCarreraDestino) {
     actualizarRampa();
   }
 
-  // 2) Fin de carrera de destino alcanzado -> detener.
+  // 2) Fin de carrera de destino alcanzado -> detener. Prioridad estricta: primero se corta la
+  //    salida (detenerMotor(), instantaneo), recien despues el indicador optico (parpadeo del
+  //    LED) -- nunca al reves.
   if (!digitalRead(pinFinCarreraDestino)) {
     detenerMotor();
     doorStd = DETENIDA;
     tEntradaDetenida = millis();
     Serial.println(sentido == ABRIENDO ? "Puerta abierta" : "Puerta cerrada");
+
+    ultimaLlegadaConfirmada = sentido;  // ver manejarDetenida(): cubre el rebote del iman por
+                                        // inercia, cuando el fin de carrera se desactiva de nuevo
+
+    portENTER_CRITICAL(&muxTrayecto);
+    bool trayectoCompleto = trayectoActivo;
+    long pulsos = contadorTrayecto;
+    trayectoActivo = false;
+    portEXIT_CRITICAL(&muxTrayecto);
+    if (trayectoCompleto) {
+      Serial.print("[TRAYECTO] completo, sentido=");
+      Serial.print(sentido == ABRIENDO ? "ABRIENDO" : "CERRANDO");
+      Serial.print(", pulsos=");
+      Serial.println(pulsos);
+    }
+
+    iniciarParpadeoLed();  // confirma que se detecto el iman del fin de carrera
     return;
   }
 
@@ -299,6 +380,9 @@ static void manejarMovimiento(char sentido, uint8_t pinFinCarreraDestino) {
   if (triacActivo && (millis() - ultimoPulsoEncoderISR > ENCODER_TIMEOUT_MS)) {
     detenerMotor();
     doorStd = ERROR;
+    portENTER_CRITICAL(&muxTrayecto);
+    trayectoActivo = false;  // atasco: el trayecto queda invalido, no se reporta
+    portEXIT_CRITICAL(&muxTrayecto);
     Serial.println("ERROR: atasco detectado (sin pulsos de encoder)");
     return;
   }
@@ -310,7 +394,18 @@ static void manejarMovimiento(char sentido, uint8_t pinFinCarreraDestino) {
   }
 }
 
+// Este proyecto no usa WiFi ni Bluetooth. Apagar los dos radios de entrada evita que consuman
+// energia/generen calor en vano y reduce la superficie de interferencia -- sin la complejidad de
+// un modo de bajo consumo (deep sleep), que se descarto para este equipo por estar alimentado de
+// red, no a bateria (ver bitacora/design.md).
+static void apagarRadios() {
+  WiFi.mode(WIFI_OFF);
+  btStop();
+}
+
 void inicializarPines() {
+  apagarRadios();
+
   pinMode(ZCROSS, INPUT);
   pinMode(D0, INPUT);
   pinMode(D1, INPUT);
@@ -361,12 +456,6 @@ void inicializarPines() {
   // ZCROSS: real desde esta sesion (ver isrZcross), no solo diagnostico. Un pulso en alto por
   // cada cruce por cero -> RISING.
   attachInterrupt(digitalPinToInterrupt(ZCROSS), isrZcross, RISING);
-
-#if DEBUG_PULSOS
-  // Diagnostico temporal (ver porton.h -> DEBUG_PULSOS): cuenta pulsos de ENCB, que hoy no se usa
-  // para nada mas.
-  attachInterrupt(digitalPinToInterrupt(ENCB), isrEncBDiag, CHANGE);
-#endif
 }
 
 void procesarComandoSerial() {
@@ -432,6 +521,7 @@ void actualizarEstadoPuerta() {
   // El boton de reset (D2) se consume siempre (para no perder flancos), pero solo hace algo si
   // estamos en ERROR.
   bool reset = botonResetPresionado();
+  actualizarParpadeoLed();
 
   switch (doorStd) {
     case DETENIDA:

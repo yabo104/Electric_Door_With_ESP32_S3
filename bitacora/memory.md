@@ -23,6 +23,10 @@
   necesidad de ajustar `board_build.*` — no se detectaron problemas de tamaño de flash/PSRAM.
 - **USB nativo confirmado:** el puerto enumera con VID:PID `303A:1001` (Espressif) — el USB CDC
   configurado en `platformio.ini` funciona; no es un puente serie genérico.
+- **Enlazar la librería `WiFi.h` infla el binario notablemente aunque solo se use para apagar el
+  radio** (`WiFi.mode(WIFI_OFF)` en `apagarRadios()`, sesión 008): Flash pasó de ~8% a ~20%, RAM
+  de ~6% a ~13% en esta build. Sigue sobrando margen, pero si en algún momento el espacio se pone
+  ajustado, este es el primer lugar a revisar.
 
 ## Firmware (`Firmware_Porton/`)
 
@@ -71,32 +75,32 @@ Diseño de la máquina de estados (sesión 004) en `requirements.md` §3/§4 y `
   conteo en sí: con el disparo de fase real (sesión 007), un flanco espurio cercano al real podía
   armar el `esp_timer` del TRIAC dos veces para el mismo cruce, y 1000us no alcanzaba para
   filtrarlo.
-- **Disparo del TRIAC por ángulo de fase, sincronizado a `ZCROSS` (sesión 007) — implementado,
-  SIN CONFIRMAR que funcione como se espera.** Mecanismo: `isrZcross()` (real desde esta sesión)
-  arma `timerDisparo` (`esp_timer`) con el retardo de fase actual; su callback pulsa `TRIGGER` y
-  arma `timerPulso` para soltarlo tras `PULSO_TRIAC_US`. La rampa de arranque (`actualizarRampa()`
-  en `manejarMovimiento()`) interpola el retardo entre `DISPARO_US_MIN` (potencia baja, al
-  arrancar) y `DISPARO_US_MAX` (potencia de crucero) durante `RAMPA_ARRANQUE_MS`. Detalle completo
-  y alcance en `requirements.md` §5.
-  - **Al probar en hardware real, el usuario no notó ninguna diferencia** respecto del arranque a
-    máxima potencia anterior — sin diagnóstico de osciloscopio todavía (queda para la próxima
-    sesión). No asumir que el arranque suave funciona ni que no funciona hasta confirmarlo.
-  - **`ESP_TIMER_ISR` (dispatch en contexto de interrupción real) no está disponible en esta
-    build** de Arduino-ESP32 — falló la compilación al pedirlo. Los dos `esp_timer` usan el
-    dispatch por defecto (`ESP_TIMER_TASK`, corren en la tarea de esp_timer, prioridad alta pero
-    no una ISR real). Puede tener más jitter del ideal para la precisión del ángulo de disparo —
-    a confirmar con el osciloscopio.
-  - **Sin verificar en este entorno:** llamar `esp_timer_start_once()`/`esp_timer_stop()` desde
-    una ISR de GPIO real (`isrZcross()`) — es un patrón usado en proyectos de dimmers ESP32, pero
-    no hay confirmación propia de que ande bien en esta build/versión concreta. Si el disparo no
-    varía nada durante la rampa, revisar esto primero.
-  - **Hipótesis abierta, no confirmada:** el motor es de fase partida (inducción). En un motor de
-    inducción, reducir el voltaje RMS por corte de fase reduce sobre todo el **torque**, no la
-    **velocidad** de forma directa — a diferencia de un motor universal, donde el frenado por
-    corte de fase se nota mucho más. Si el mecanismo de disparo está funcionando bien
-    eléctricamente, igual podría no notarse como "más lento" al oído/vista. No descartar el
-    diagnóstico con osciloscopio por esta hipótesis — hay que confirmar primero si el retardo
-    realmente varía.
+- **Disparo del TRIAC por ángulo de fase, sincronizado a `ZCROSS` (sesión 007) — CONFIRMADO
+  funcionando en el portón real (sesión 008), en potencia fija.** Mecanismo: `isrZcross()` arma
+  `timerDisparo` (`esp_timer`) con el retardo de fase actual; su callback pulsa `TRIGGER` y arma
+  `timerPulso` para soltarlo tras `PULSO_TRIAC_US`. Llamar `esp_timer_start_once()`/
+  `esp_timer_stop()` desde una ISR de GPIO real (`isrZcross()`) **sí funciona** en esta build —
+  quedaba como "sin verificar" en la sesión 007, ya validado con el motor real moviéndose.
+  - **`ESP_TIMER_ISR` (dispatch en contexto de interrupción real) sigue sin estar disponible en
+    esta build** de Arduino-ESP32 (falla la compilación al pedirlo) — los dos `esp_timer` corren
+    en dispatch `ESP_TIMER_TASK` (por defecto). El jitter que eso pueda meter **no impidió** que
+    el mecanismo funcionara bien en la práctica.
+  - **Hallazgo clave (sesión 008): disparar muy cerca del cruce por cero (~100% de potencia, ~6,5°)
+    no engancha el TRIAC de forma confiable con esta carga inductiva** — el motor directamente no
+    se movía a ese nivel. A partir de ~90% (~46°) sí enganchaba. Es la explicación más probable de
+    por qué la rampa de arranque original (que pasaba por la zona cercana al 100% al llegar a
+    velocidad de crucero) generaba paradas falsas por "atasco": enganche inconsistente ciclo a
+    ciclo = pulsos de torque irregulares, no potencia pareja. **La hipótesis de la sesión 007**
+    (el motor de inducción no muestra el corte de fase en velocidad, solo en torque) **queda sin
+    resolver y ya no es la explicación principal** — este hallazgo de enganche es más concreto y
+    concuerda con los datos.
+  - **`PULSO_TRIAC_US` subido de 200 a 500us (sesión 008)** — pulso de gate más largo, para ayudar
+    al enganche cerca del cruce por cero. El retardo de disparo y el ancho del pulso son
+    independientes (el pulso puede durar más que el retardo).
+  - **Release (sesión 008): rampa de arranque DESACTIVADA, potencia fija al 85%**
+    (`POTENCIA_MOTOR_PCT` en `porton.h`) — primer nivel que movió el portón de punta a punta sin
+    falsos atascos. La rampa (`RAMPA_ARRANQUE_MS`/`actualizarRampa()`) sigue en el código, sin
+    usar. Detalle completo en `requirements.md` §5.
 - **UART de depuración: confirmado en `GPIO43` (TXD0) / `GPIO44` (RXD0)**, hacia un conector
   auxiliar en la placa (confirmado por el usuario, sesión 005) — **no** hay conflicto con
   `TRIGGER` (`GPIO21`). El comentario del `.ino` original (`// HW UART TXD pin IO21`) estaba
@@ -106,6 +110,22 @@ Diseño de la máquina de estados (sesión 004) en `requirements.md` §3/§4 y `
 - **`comando` se maneja por caracter ASCII** (`'0'`-`'7'`) vía `Serial`; es la interfaz de pruebas
   manuales, no un protocolo binario. Los comandos `1`/`2`/`3` reusan `seleccionarSentido()`/
   `detenerMotor()`, así que el interlock de relevos aplica también en modo manual.
+- **Contador de trayecto (`contadorTrayecto`/`trayectoActivo`/`sentidoTrayecto`) tiene su propio
+  `portMUX_TYPE` (`muxTrayecto`), separado de `muxPulsos`** — a propósito: `muxPulsos` solo existe
+  si `DEBUG_PULSOS` está activo, y el contador de trayecto es una función real, no diagnóstica.
+  **Todas** las escrituras a `trayectoActivo` deben pasar por `muxTrayecto` (se encontraron y
+  corrigieron dos que no lo hacían, en la sesión 008) — aunque sea un `bool` de una sola escritura
+  "atómica" en la práctica, romper el patrón ahí invita a que el próximo cambio sí introduzca una
+  condición de carrera real.
+- **`ultimaLlegadaConfirmada`** (sesión 008) guarda el último `ABRIENDO`/`CERRANDO` que llegó de
+  verdad a su fin de carrera — no confundir con `doorLastStd` (que se actualiza en **cada**
+  arranque de movimiento, llegue o no a destino, y hoy no se lee en ningún lado). Es la que decide
+  el sentido cuando no hay ningún fin de carrera activo (`requirements.md` §4).
+- **El parpadeo del LED necesita una pausa apagada antes de encenderse** (`LED_PAUSA_PARPADEO_MS`)
+  — si se enciende de una tras `detenerMotor()` (que ya apaga el LED), la transición apagado→
+  encendido pasa en microsegundos y el ojo humano no la distingue del "encendido fijo" que tenía
+  el LED un instante antes por el movimiento. Bug real de la primera versión (sesión 008): el
+  parpadeo estaba implementado pero nadie lo veía.
 - **Todo case de `procesarComandoSerial()` debe terminar con `comando = 0;`.** Si no, el comando
   queda "pegado" y se reejecuta en cada iteración del `loop()` hasta que llegue otro. Bug real
   encontrado en hardware (sesión 006): los cases `'0'` (LED) y `'4'` (leer D0-D3) no lo hacían —

@@ -12,3 +12,4 @@
 | 5 | 2026-08-08 | Confirmaciones de diseno (control remoto, UART, idioma futuro) | sesion-005-2026-08-08.md |
 | 6 | 2026-08-08 | Validacion en hardware real: control remoto D0/D2, ENCA2, atasco confirmado | sesion-006-2026-08-08.md |
 | 7 | 2026-08-08 | Arranque suave del TRIAC (fase por ZCROSS), sin confirmar efecto en motor real | sesion-007-2026-08-08.md |
+| 8 | 2026-08-11 | Contador de trayecto, LED, fix de rebote por inercia, TRIAC en potencia fija (release), radios apagadas | sesion-008-2026-08-11.md |

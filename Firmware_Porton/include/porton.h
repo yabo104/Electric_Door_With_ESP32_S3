@@ -37,12 +37,15 @@
 /* Tiempos de la maquina de estados, en milisegundos. */
 #define RELAY_SETTLE_MS     500   // entre elegir sentido (relevo) y habilitar potencia (TRIAC)
 #define REVERSE_STOP_MS     500   // detenido obligatorio antes de invertir sentido
-#define ENCODER_TIMEOUT_MS  2500  // TEMPORAL (subido para diagnosticar el encoder con
+#define ENCODER_TIMEOUT_MS  2000  // TEMPORAL (subido para diagnosticar el encoder con
                                     // osciloscopio) -- volver a un valor real (unos segundos)
                                     // antes de dar por buena la deteccion de atasco.
 #define BOTON_DEBOUNCE_MS   80    // antirrebote de D0/D2
 #define DOBLE_PULSACION_MS  2000  // ventana para detectar doble pulsacion de D0 en movimiento
                                    // (detiene y deja el porton a medio camino, sin invertir)
+#define LED_PAUSA_PARPADEO_MS 100 // apagado visible antes del parpadeo (para que se note el
+                                   // flanco: el LED ya viene encendido fijo por el movimiento)
+#define LED_PARPADEO_MS     150   // duracion del parpadeo del LED al detectar un fin de carrera
 
 /* Antirrebote del pulso de ZCROSS, en microsegundos. El comparador analogico puede generar mas
    de un flanco de subida muy cercano en el mismo cruce (confirmado con osciloscopio: la senal
@@ -52,27 +55,52 @@
    arme el disparo del TRIAC dos veces para el mismo cruce real. */
 #define ZCROSS_DEBOUNCE_US  3000
 
-/* --- Disparo del TRIAC por angulo de fase (arranque suave) ---
+/* --- Disparo del TRIAC por angulo de fase ---
    SEMICICLO_US: duracion aproximada de un semiciclo de red a 60Hz (confirmado: ZCROSS mide
-   ~120,8Hz = 2x60Hz). Sirve de referencia para los otros valores, no se usa como limite duro en
-   el codigo.
-   PULSO_TRIAC_US: ancho del pulso de gate del BT138-800 (confirmado por el usuario, ya probado
-   en proyectos anteriores).
-   DISPARO_US_MAX: retardo de disparo en potencia de crucero (maxima potencia util) -- chico,
-   apenas por encima de PULSO_TRIAC_US.
-   DISPARO_US_MIN: retardo de disparo al INICIO de la rampa de arranque (potencia baja). ~50% del
-   semiciclo es un punto de partida conservador -- ya da bastante menos potencia que el crucero
-   sin acercarse a que el motor no tenga torque para arrancar. Requiere ajuste empirico con el
-   motor real: si no arranca, bajar (mas potencia); si el arranque sigue brusco, subir.
-   RAMPA_ARRANQUE_MS: duracion de la rampa (interpola DISPARO_US_MIN -> DISPARO_US_MAX). Despues
-   de este tiempo el disparo queda fijo en DISPARO_US_MAX, igual que el diseno anterior (todo/
-   nada), hasta que el motor se detiene. La PARADA sigue siendo instantanea -- no hay rampa de
-   bajada todavia (queda para una sesion futura, con calibracion de recorrido por ENCA2). */
+   ~120,8Hz = 2x60Hz). Referencia para los otros valores, no es un limite duro en el codigo.
+   PULSO_TRIAC_US: ancho del pulso de gate del BT138-800. 500us (subido desde 200us en la sesion
+   008: un pulso mas largo ayuda a enganchar con esta carga inductiva, sobre todo cerca del cruce
+   por cero). El retardo (DISPARO_US_MAX/MIN) y el ancho del pulso son independientes: el pulso
+   puede durar mas que el retardo sin problema, el TRIAC solo necesita el gate en LOW el tiempo
+   suficiente para enganchar.
+   DISPARO_US_MAX: retardo de disparo en la potencia mas alta que se usa (chico = cerca del cruce
+   por cero = mas conduccion).
+
+   ESTADO ACTUAL (sesion 008): **release en potencia fija, sin rampa de arranque suave.** La
+   version original de esta seccion armaba una rampa (DISPARO_US_MIN bajo -> DISPARO_US_MAX)
+   durante RAMPA_ARRANQUE_MS. En las pruebas de banco con el porton real, disparar demasiado cerca
+   del cruce por cero (potencias ~100%) no siempre enganchaba el TRIAC con esta carga inductiva, y
+   la rampa pasaba por esa zona marginal -- eso generaba paradas falsas por "atasco" durante el
+   arranque. Se decidio, con el usuario, dejar el release con **potencia fija** en el nivel que sí
+   demostro enganchar de forma confiable (ver POTENCIA_MOTOR_PCT abajo) y posponer la rampa de
+   arranque suave a una sesion futura, ya con este piso de potencia fiable como punto de partida.
+   RAMPA_ARRANQUE_MS y la logica de actualizarRampa() en porton.cpp se dejan en el codigo (no se
+   usan mientras DISPARO_US_MIN == DISPARO_US_MAX) para no tener que rehacerlas desde cero. */
 #define SEMICICLO_US        8333
-#define PULSO_TRIAC_US      200
+#define PULSO_TRIAC_US      500
 #define DISPARO_US_MAX      300
-#define DISPARO_US_MIN      4200
 #define RAMPA_ARRANQUE_MS   1200
+
+/* --- Nivel de potencia del release (fijo, sin rampa) ---
+   POTENCIA_MOTOR_PCT: 0-100. Cambiar este numero y volver a compilar/cargar para ajustar la
+   potencia fija que usa el porton (por ejemplo, si cambian las condiciones mecanicas del
+   recorrido). Se traduce a un retardo de disparo por interpolacion LINEAL en tiempo entre
+   DISPARO_US_MAX (100%) y SEMICICLO_US (0%, disparo tan tarde que casi no hay conduccion) -- OJO:
+   no es un porcentaje exacto de potencia RMS (esa relacion es no lineal: el disparo cerca del
+   pico de la onda aporta bastante mas energia que cerca del cruce por cero), pero es una perilla
+   monotona: mas alto = mas potencia real.
+   Historial de pruebas en banco que llevaron al valor actual (motor real, sin rampa):
+     100% (300us,  ~6,5 grados desde el cruce) -> el motor NO se movio (el TRIAC no llegaba a
+       enganchar tan cerca del cruce, con esta carga inductiva).
+     90%  (2150us, ~46 grados) -> el motor SI se movio.
+     95%  (1670us, ~36 grados) -> punto intermedio, tambien probado.
+     85%  (con PULSO_TRIAC_US ya en 500us) -> nivel elegido para el release: mueve el porton de
+       forma confiable en todo el recorrido, sin las paradas falsas por atasco que daban los
+       niveles mas cercanos al 100%. */
+#define POTENCIA_MOTOR_PCT  85
+#define DISPARO_US_FIJO \
+  (DISPARO_US_MAX + ((uint32_t)(SEMICICLO_US - DISPARO_US_MAX) * (100 - POTENCIA_MOTOR_PCT)) / 100)
+#define DISPARO_US_MIN      DISPARO_US_FIJO
 
 /* --- Diagnostico temporal de pulsos (ENCA/ENCB/ZCROSS/ENCA2) ---
    Para quitarlo: poner DEBUG_PULSOS en 0 (no hace falta borrar codigo). */

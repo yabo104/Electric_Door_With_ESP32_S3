@@ -21,7 +21,10 @@
 - §2 — Contrato de hardware: sistema de potencia y pines ESP32-S3
 - §3 — Máquina de estados del portón (segura, no bloqueante)
 - §4 — Política del control remoto (D0/D1)
-- §5 — Arranque suave del TRIAC (disparo por ángulo de fase)
+- §5 — Disparo del TRIAC por ángulo de fase (release: potencia fija, sin rampa)
+- §6 — Contador de trayecto (pulsos de `ENCA2`)
+- §7 — Indicador LED
+- §8 — Radios WiFi/Bluetooth apagadas (sin deep sleep)
 
 ### §1 — Interfaz de comandos por Serial (pruebas de banco)
 
@@ -79,12 +82,13 @@
   Reemplaza al diseño anterior (interruptor todo/nada).
 - **Detección de atasco vía encoder — confirmada en hardware real (sesión 006):** una
   interrupción actualiza un timestamp (`ultimoPulsoEncoderISR`); si el TRIAC lleva más de
-  `ENCODER_TIMEOUT_MS` (2500 ms, ajustado por el usuario tras ver la velocidad real del motor)
-  activo sin ningún pulso, se detiene el motor y se pasa a `ERROR`. Dos fuentes en paralelo
-  alimentan el mismo timestamp: `ENCA` (con un problema de hardware conocido — pull-up del
-  circuito de entrada — hoy no aporta pulsos) y `ENCA2`, un sensor Hall en `GPIO44` que sí
-  funciona (confirmado: 0 pulsos con el motor quieto, pulsos reales con el motor girando). Si se
-  arregla el hardware de `ENCA`, vuelve a sumar sin más cambios de código.
+  `ENCODER_TIMEOUT_MS` (2000 ms — ajustado varias veces por el usuario durante las pruebas de la
+  sesión 008 en el portón real; sigue marcado `TEMPORAL` en el código, no hay un valor "final"
+  derivado analíticamente) activo sin ningún pulso, se detiene el motor y se pasa a `ERROR`. Dos
+  fuentes en paralelo alimentan el mismo timestamp: `ENCA` (con un problema de hardware conocido —
+  pull-up del circuito de entrada — hoy no aporta pulsos) y `ENCA2`, un sensor Hall en `GPIO44`
+  que sí funciona (confirmado: 0 pulsos con el motor quieto, pulsos reales con el motor girando).
+  Si se arregla el hardware de `ENCA`, vuelve a sumar sin más cambios de código.
 - **Salida de `ERROR` — implementada y confirmada en hardware real (sesión 006):** botón
   dedicado (`D2`, ver §4) saca de `ERROR` y vuelve a `DETENIDA` "como recién arrancado" — el
   siguiente `D0` decide el sentido por la posición real de los finales de carrera. **Sin
@@ -108,9 +112,15 @@
   `loop()`. Con antirrebote (`BOTON_DEBOUNCE_MS`, 80 ms).
   - **El sentido se decide por la posición real** (finales de carrera), no por el último
     movimiento hecho: portón en el fin de carrera de **abierto** → `D0` **cierra**; en el de
-    **cerrado** → `D0` **abre**; **posición intermedia** (ningún fin de carrera activo — al
-    arrancar a medio camino, o tras un detenido parcial) → `D0` **cierra**, por defecto. Se
-    evalúa en cada pulsación, no solo al arrancar.
+    **cerrado** → `D0` **abre**. Se evalúa en cada pulsación, no solo al arrancar.
+  - **Posición intermedia (ningún fin de carrera activo) — corregido en la sesión 008:** ya no
+    es siempre "por defecto cierra". El firmware recuerda la última llegada **confirmada**
+    (`ultimaLlegadaConfirmada`, en `porton.cpp`) y decide el sentido contrario a esa. Esto cubre
+    un caso real encontrado en el portón físico: por inercia del motor, el imán del fin de
+    carrera puede rebasar el sensor al frenar, y el switch se desactiva de nuevo justo después de
+    haber llegado — sin este ajuste, el firmware volvía a intentar cerrar (o abrir) contra el
+    tope mecánico ya alcanzado. Solo si **nunca** hubo una llegada confirmada (arranque en frío,
+    posición realmente desconocida) se usa el default original: cierra.
   - **Una pulsación de `D0` durante el movimiento invierte el sentido** — nunca en caliente:
     detiene, espera `REVERSE_STOP_MS` (500 ms), recién ahí arranca en el sentido contrario.
   - **Dos pulsaciones de `D0` dentro de `DOBLE_PULSACION_MS` (2000 ms) durante el movimiento:
@@ -123,40 +133,99 @@
 - **`D1`/`D3` sin uso.** Se leen igualmente en el comando de prueba `4` (`requirements.md` §1)
   pero no participan de la lógica automática.
 
-### §5 — Arranque suave del TRIAC (disparo por ángulo de fase)
+### §5 — Disparo del TRIAC por ángulo de fase (release: potencia fija, sin rampa)
 
-> Implementado en la sesión 007, a partir de un plan discutido y aprobado con el usuario antes de
-> tocar código (`C:\Users\Yabo\.claude\plans\nifty-cooking-stardust.md` — plan local, no versionado
-> en el repo). **Motivo:** el portón tomaba velocidad y golpeaba fuerte contra el tope al cerrar,
-> con riesgo de dañar los engranajes.
+> Mecanismo implementado en la sesión 007 (plan discutido y aprobado con el usuario antes de tocar
+> código). **Motivo original:** el portón tomaba velocidad y golpeaba fuerte contra el tope al
+> cerrar, con riesgo de dañar los engranajes. **Decisión de alcance para el release (sesión 008,
+> con el usuario):** dejar el TRIAC en **potencia fija** (sin la rampa de arranque suave) — ver el
+> porqué más abajo.
 
-- **Alcance de esta ronda, acotado a propósito:** solo arranque suave (rampa de potencia ascendente
-  al iniciar un movimiento). **La parada sigue siendo instantánea** — sin rampa de bajada. Parada
-  suave con zona de desaceleración por conteo de pulsos de `ENCA2` (con un modo de calibración de
-  recorrido) queda pospuesta a una sesión futura, a especificar por el usuario.
-- **Mecanismo:** `ZCROSS` pasa de "solo diagnóstico" a interrupción real. En cada cruce por cero
-  válido (con antirrebote), si el TRIAC está activo, arma un `esp_timer` con el retardo de fase
-  actual (`delayDisparoActualUS`); al vencer, pulsa `TRIGGER` (gate del TRIAC `BT138-800`) por
-  `PULSO_TRIAC_US` (200µs, confirmado por el usuario en proyectos anteriores) con un segundo
-  `esp_timer`.
-- **Rampa:** al activar el TRIAC (mismo punto donde antes se fijaba `TRIGGER` en `LOW` una sola
-  vez), arranca una interpolación lineal de `RAMPA_ARRANQUE_MS` (1200 ms) entre `DISPARO_US_MIN`
-  (retardo grande = potencia baja, al empezar) y `DISPARO_US_MAX` (retardo chico = potencia de
-  crucero, la misma potencia plena de antes). Después de `RAMPA_ARRANQUE_MS`, el disparo queda
-  fijo en `DISPARO_US_MAX` hasta que el motor se detiene.
-- **Valores puestos a criterio conservador, pendientes de ajuste empírico** con el usuario mirando
-  el motor real: `DISPARO_US_MIN` (potencia inicial — no puede ser tan baja como para no vencer la
-  fricción estática del motor), `RAMPA_ARRANQUE_MS` (duración).
-- **Estado al cierre de la sesión 007: implementado, compila y sube sin error, pero SIN CONFIRMAR
-  que produzca un arranque perceptiblemente más suave.** El usuario probó un movimiento real y no
-  notó diferencia respecto del arranque anterior (a máxima potencia). Sin diagnóstico con
-  osciloscopio todavía — pendiente para la próxima sesión. Dos hipótesis abiertas, no
-  descartadas: (a) un bug real en el mecanismo de disparo (el retardo no varía como debería), o
-  (b) el motor es de fase partida (inducción) y reducir el voltaje RMS por corte de fase reduce
-  sobre todo el **torque**, no la **velocidad**, de forma menos perceptible que en un motor
-  universal — en ese caso el arranque suave podría estar funcionando eléctricamente sin notarse
-  al oído/vista. Ninguna de las dos se da por buena ni por descartada sin el dato del osciloscopio.
+- **Mecanismo (sin cambios desde la sesión 007):** `ZCROSS` es una interrupción real (no solo
+  diagnóstico). En cada cruce por cero válido (con antirrebote, `ZCROSS_DEBOUNCE_US`), si el TRIAC
+  está activo, arma un `esp_timer` con el retardo de fase actual (`delayDisparoActualUS`); al
+  vencer, pulsa `TRIGGER` (gate del TRIAC `BT138-800`) por `PULSO_TRIAC_US` con un segundo
+  `esp_timer`. `PULSO_TRIAC_US` subió de 200 a 500µs en la sesión 008: un pulso más largo ayuda a
+  enganchar con esta carga inductiva.
+- **La rampa de arranque suave (interpolar `DISPARO_US_MIN` → `DISPARO_US_MAX` durante
+  `RAMPA_ARRANQUE_MS`) quedó DESACTIVADA para el release.** Motivo, encontrado en pruebas en banco
+  con el portón real (sesión 008): disparar demasiado cerca del cruce por cero (potencias
+  cercanas al 100%) no siempre engancha el TRIAC con esta carga inductiva — al 100% exacto
+  (~6,5° desde el cruce) el motor directamente no se movía. La rampa original pasaba por esa zona
+  marginal al principio de cada arranque, y eso generaba paradas falsas por "atasco" (§3): el
+  enganche inconsistente ciclo a ciclo genera pulsos de torque irregulares, no una rampa suave de
+  potencia creciente.
+- **Solución para el release: potencia fija, calibrada empíricamente.** `POTENCIA_MOTOR_PCT` (hoy
+  85%, en `porton.h`) fija `DISPARO_US_MIN = DISPARO_US_MAX` — el TRIAC dispara al mismo ángulo de
+  fase durante todo el movimiento, sin rampa. Es una interpolación **lineal en tiempo** entre
+  `DISPARO_US_MAX` (100%) y `SEMICICLO_US` (0%), no un porcentaje exacto de potencia RMS (esa
+  relación es curva), pero sirve como perilla monótona para ajustar a mano si hace falta.
+  Historial de pruebas que llevaron al 85%: 100% no movía el motor; 90% y 95% sí lo movían pero
+  daban `ERROR` falso en tramos del recorrido con más esfuerzo mecánico; 85% (con el pulso de gate
+  ya en 500µs) fue el primer nivel que movió el portón de punta a punta sin falsos atascos.
+- **La parada sigue siendo instantánea** — sin rampa de bajada, sin cambios en esta sesión.
+- **Arranque suave real (con rampa) queda pospuesto**, ahora con un piso de potencia fiable
+  (85%, pulso de 500µs) como punto de partida en vez de los valores originales sin probar. El
+  código de la rampa (`RAMPA_ARRANQUE_MS`, `actualizarRampa()`) se deja en `porton.cpp` sin usar,
+  para no rehacerlo desde cero cuando se retome.
 - **Detalle de hallazgos técnicos y gotchas de esta implementación:** `memory.md`.
+
+### §6 — Contador de trayecto (pulsos de `ENCA2`)
+
+> Agregado en la sesión 008 a pedido del usuario, para poder revisar si el recorrido completo del
+> portón da una cantidad de pulsos de `ENCA2` medianamente consistente entre corridas — dato de
+> entrada para una futura calibración de recorrido (parada suave con zona de desaceleración,
+> pospuesta, ver §5).
+
+- **Solo es válido entre dos finales de carrera confirmados.** Arranca en 0 únicamente cuando un
+  movimiento empieza con un fin de carrera activo en el origen (abierta→cierra o cerrada→abre) —
+  **no** desde una posición intermedia (incluida la inferida por `ultimaLlegadaConfirmada`, §4):
+  ahí no hay un punto de partida medido, solo asumido, y contaminaría la comparación entre
+  corridas.
+- **Suma en el sentido del trayecto, resta en el sentido contrario.** Cada pulso de `ENCA2`
+  incrementa el contador si el sentido actual coincide con el que tenía el trayecto al arrancar, y
+  lo decrementa si no (hubo una reversa) — así el contador siempre refleja la distancia neta
+  recorrida desde el origen confirmado, aunque haya idas y vueltas en el medio.
+- **Se invalida en silencio (decisión del usuario) si el trayecto se interrumpe** antes de llegar
+  al destino: detenido parcial (doble pulsación) o `ERROR` (atasco). No se imprime nada — solo se
+  reportan los recorridos completos, que son el dato comparable.
+- **Al llegar al fin de carrera de destino**, si el trayecto era válido, imprime por Serial
+  `[TRAYECTO] completo, sentido=…, pulsos=…`.
+
+### §7 — Indicador LED
+
+> Agregado en la sesión 008 a pedido del usuario, pensando en la instalación final del portón
+> (sin acceso directo al Serial).
+
+- **Encendido fijo mientras el motor está en movimiento** (`ABRIENDO`/`CERRANDO`), apagado el
+  resto del tiempo — centralizado en `iniciarMovimiento()`/`detenerMotor()`, no hay otro punto del
+  código que escriba `LED` para la operación automática.
+- **Parpadeo al detectar el fin de carrera de destino** (confirma que se detectó el imán) —
+  **no** en detenido parcial ni en `ERROR`, para no dar una señal engañosa. Secuencia de dos fases,
+  no bloqueante: pausa apagada (`LED_PAUSA_PARPADEO_MS`, 100ms) y luego encendido
+  (`LED_PARPADEO_MS`, 150ms). La pausa es necesaria: sin ella, el parpadeo arranca desde el mismo
+  "encendido" que ya tenía por el movimiento, y el flanco no se distingue a simple vista (bug
+  real encontrado en la primera versión, sesión 008).
+- **Prioridad estricta:** siempre se llama primero a `detenerMotor()` (corte de salidas,
+  instantáneo) y recién después se dispara el parpadeo — nunca al revés.
+
+### §8 — Radios WiFi/Bluetooth apagadas (sin deep sleep)
+
+> Decisión de la sesión 008, a partir de una pregunta del usuario sobre bajo consumo/calor del
+> ESP32-S3. Detalle completo de la discusión en `design.md` → Decisiones estructurales.
+
+- **`WiFi.mode(WIFI_OFF)` + `btStop()`** en `inicializarPines()` (`apagarRadios()`,
+  `porton.cpp`) — el proyecto no usa ninguno de los dos radios, así que apagarlos evita consumo/
+  calor/interferencia sin costo funcional.
+- **Se descartó el deep sleep** (que el usuario planteó primero) porque este equipo está
+  alimentado de red, no a batería — el ahorro de energía no justifica el costo: perder toda la
+  RAM en cada ciclo de sueño (hay que reconstruir el estado desde memoria RTC), la latencia de
+  arranque en frío en cada despertar, que el USB CDC (el `Serial` que se usó para depurar toda
+  esta sesión) se cae mientras duerme, y verificar con osciloscopio que los relevos/TRIAC no
+  flotan durante la transición de sueño/despertar antes de confiar en él con 110VAC de por medio.
+- **Costo de la librería WiFi:** aunque solo se llama para apagarla, enlazarla infla el binario
+  notablemente (Flash ~8%→20%, RAM ~6%→13% en esta build) — sigue sobrando margen de sobra, pero
+  vale la pena saberlo si en el futuro el espacio se vuelve ajustado.
 
 ## Modelo de datos
 

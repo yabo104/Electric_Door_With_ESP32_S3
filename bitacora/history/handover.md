@@ -6,10 +6,12 @@ SIN_TRABAJO_ACTIVO
 
 ## Última sesión cerrada
 
-Sesión `7` (`2026-08-08`) — Arranque suave del TRIAC (disparo por ángulo de fase, sincronizado a
-`ZCROSS`), implementado y subido a la placa, pero **sin confirmar** que se perciba en el motor
-real. Ver `sesion-007-2026-08-08.md` en `bitacora/history/`.
-No hay trabajo a medias. Próximo paso: el usuario prueba con el osciloscopio y trae el resultado.
+Sesión `8` (`2026-08-11`) — Contador de trayecto, indicador LED, corrección de un bug real de
+posición (rebote del imán por inercia), TRIAC calibrado a potencia fija (85%) tras pruebas en el
+portón real, radios Wi-Fi/Bluetooth apagadas, revisión de código, y README de portada. Ver
+`sesion-008-2026-08-11.md` en `bitacora/history/`.
+No hay trabajo a medias. Próximo paso: verificar en hardware la última carga, y crear el tag/
+release en GitHub.
 
 <!-- =========================================================================
      Cuando arranca un cambio interrumpible, SOBRESCRIBIR con la forma EN_PROGRESO:
